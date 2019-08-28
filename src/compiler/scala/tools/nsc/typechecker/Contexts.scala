@@ -20,7 +20,6 @@ import scala.reflect.internal.Reporter
 
 /**
  *  @author  Martin Odersky
- *  @version 1.0
  */
 trait Contexts { self: Analyzer =>
   import global._
@@ -209,9 +208,9 @@ trait Contexts { self: Analyzer =>
    *     applications with and without an expected type, or when `Typer#tryTypedApply` tries to fit arguments to
    *     a function type with/without implicit views.
    *
-   *     When the error policies entail error/warning buffering, the mutable [[ReportBuffer]] records
+   *     When the error policies entail error/warning buffering, the mutable [[ContextReporter]] records
    *     everything that is issued. It is important to note, that child Contexts created with `make`
-   *     "inherit" the very same `ReportBuffer` instance, whereas children spawned through `makeSilent`
+   *     "inherit" the very same `ContextReporter` instance, whereas children spawned through `makeSilent`
    *     receive a separate, fresh buffer.
    *
    * @param tree  Tree associated with this context
@@ -300,7 +299,7 @@ trait Contexts { self: Analyzer =>
             val fresh = freshNameCreatorFor(this)
             val vname = newTermName(fresh.newName("rec$"))
             val vsym = owner.newValue(vname, newFlags = FINAL | SYNTHETIC) setInfo tpe
-            implicitDictionary +:= (tpe, (vsym, EmptyTree))
+            implicitDictionary +:= ((tpe, (vsym, EmptyTree)))
             vsym
         }
       gen.mkAttributedRef(sym) setType tpe
@@ -337,7 +336,7 @@ trait Contexts { self: Analyzer =>
 
     def defineByNameImplicit(tpe: Type, result: SearchResult): SearchResult = implicitRootContext.defineImpl(tpe, result)
 
-    def emitImplicitDictionary(pos: Position, result: SearchResult): SearchResult =
+    def emitImplicitDictionary(result: SearchResult): SearchResult =
       if(implicitDictionary == null || implicitDictionary.isEmpty || result.tree == EmptyTree) result
       else {
         val typer = newTyper(this)
@@ -352,7 +351,8 @@ trait Contexts { self: Analyzer =>
         }
 
         val pruned = prune(List(result.tree), implicitDictionary.map(_._2), Nil)
-        if(pruned.isEmpty) result
+        if (pruned.isEmpty) result
+        else if (pruned.exists(_._2 == EmptyTree)) SearchFailure
         else {
           val pos = result.tree.pos
           val (dictClassSym, dictClass0) = {
@@ -1312,7 +1312,7 @@ trait Contexts { self: Analyzer =>
    *  the search continuing as long as no qualifying name is found.
    */
   // OPT: moved this into a (cached) object to avoid costly and non-eliminated {Object,Int}Ref allocations
-  private[Contexts] final val symbolLookupCache = ReusableInstance[SymbolLookup](new SymbolLookup)
+  private[Contexts] final val symbolLookupCache = ReusableInstance[SymbolLookup](new SymbolLookup, enabled = true)
   private[Contexts] final class SymbolLookup {
     private[this] var lookupError: NameLookup  = _ // set to non-null if a definite error is encountered
     private[this] var inaccessible: NameLookup = _ // records inaccessible symbol for error reporting in case none is found
@@ -1510,7 +1510,7 @@ trait Contexts { self: Analyzer =>
           }
         }
         // optimization: don't write out package prefixes
-        finish(resetPos(imp1.qual.duplicate), impSym)
+        finish(duplicateAndResetPos.transform(imp1.qual), impSym)
       }
       else finish(EmptyTree, NoSymbol)
     }
@@ -1542,15 +1542,17 @@ trait Contexts { self: Analyzer =>
    *
    *  To handle nested contexts, reporters share buffers. TODO: only buffer in BufferingReporter, emit immediately in ImmediateReporter
    */
-  abstract class ContextReporter(private[this] var _errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, private[this] var _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends Reporter {
+  abstract class ContextReporter(private[this] var _errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, private[this] var _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) {
     type Error = AbsTypeError
     type Warning = (Position, String)
 
-    def issue(err: AbsTypeError)(implicit context: Context): Unit = handleError(context.fixPosition(err.errPos), addDiagString(err.errMsg))
+    def issue(err: AbsTypeError)(implicit context: Context): Unit = error(context.fixPosition(err.errPos), addDiagString(err.errMsg))
 
-    protected def handleError(pos: Position, msg: String): Unit
+    def echo(pos: Position, msg: String): Unit    = reporter.echo(pos, msg)
+    def warning(pos: Position, msg: String): Unit = reporter.warning(pos, msg)
+    def error(pos: Position, msg: String): Unit
+
     protected def handleSuppressedAmbiguous(err: AbsAmbiguousTypeError): Unit = ()
-    protected def handleWarning(pos: Position, msg: String): Unit = reporter.warning(pos, msg)
 
     def makeImmediate: ContextReporter = this
     def makeBuffering: ContextReporter = this
@@ -1581,7 +1583,7 @@ trait Contexts { self: Analyzer =>
           if (target.isBuffering) {
             target ++= errors
           } else {
-            errors.foreach(e => target.handleError(e.errPos, e.errMsg))
+            errors.foreach(e => target.error(e.errPos, e.errMsg))
           }
           // TODO: is clearAllErrors necessary? (no tests failed when dropping it)
           // NOTE: even though `this ne target`, it may still be that `target.errorBuffer eq _errorBuffer`,
@@ -1593,20 +1595,13 @@ trait Contexts { self: Analyzer =>
       }
     }
 
-    protected final def info0(pos: Position, msg: String, severity: Severity, force: Boolean): Unit =
-      severity match {
-        case ERROR   => handleError(pos, msg)
-        case WARNING => handleWarning(pos, msg)
-        case INFO    => reporter.echo(pos, msg)
-      }
-
-    final override def hasErrors = super.hasErrors || (_errorBuffer != null && errorBuffer.nonEmpty)
+    final def hasErrors: Boolean = _errorBuffer != null && errorBuffer.nonEmpty
 
     // TODO: everything below should be pushed down to BufferingReporter (related to buffering)
     // Implicit relies on this most heavily, but there you know reporter.isInstanceOf[BufferingReporter]
     // can we encode this statically?
 
-    // have to pass in context because multiple contexts may share the same ReportBuffer
+    // have to pass in context because multiple contexts may share the same ContextReporter
     def reportFirstDivergentError(fun: Tree, param: Symbol, paramTp: Type)(implicit context: Context): Unit =
       errors.collectFirst {
         case dte: DivergentImplicitTypeError => dte
@@ -1616,7 +1611,7 @@ trait Contexts { self: Analyzer =>
           // no need to issue the problem again if we are still in silent mode
           if (context.reportErrors) {
             context.issue(divergent.withPt(paramTp))
-            errorBuffer.retain {
+            errorBuffer.filterInPlace {
               case dte: DivergentImplicitTypeError => false
               case _ => true
             }
@@ -1626,7 +1621,7 @@ trait Contexts { self: Analyzer =>
       }
 
     def retainDivergentErrorsExcept(saved: DivergentImplicitTypeError) =
-      errorBuffer.retain {
+      errorBuffer.filterInPlace {
         case err: DivergentImplicitTypeError => err ne saved
         case _ => false
       }
@@ -1674,7 +1669,7 @@ trait Contexts { self: Analyzer =>
 
   private[typechecker] class ImmediateReporter(_errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends ContextReporter(_errorBuffer, _warningBuffer) {
     override def makeBuffering: ContextReporter = new BufferingReporter(errorBuffer, warningBuffer)
-    protected def handleError(pos: Position, msg: String): Unit = reporter.error(pos, msg)
+    def error(pos: Position, msg: String): Unit = reporter.error(pos, msg)
  }
 
 
@@ -1685,9 +1680,10 @@ trait Contexts { self: Analyzer =>
 
     // this used to throw new TypeError(pos, msg) -- buffering lets us report more errors (test/files/neg/macro-basic-mamdmi)
     // the old throwing behavior was relied on by diagnostics in manifestOfType
-    protected def handleError(pos: Position, msg: String): Unit                        = errorBuffer += TypeErrorWrapper(new TypeError(pos, msg))
+    def error(pos: Position, msg: String): Unit                        = errorBuffer += TypeErrorWrapper(new TypeError(pos, msg))
+    override def warning(pos: Position, msg: String): Unit             = warningBuffer += ((pos, msg))
+
     override protected def handleSuppressedAmbiguous(err: AbsAmbiguousTypeError): Unit = errorBuffer += err
-    override protected def handleWarning(pos: Position, msg: String): Unit             = warningBuffer += ((pos, msg))
 
     // TODO: emit all buffered errors, warnings
     override def makeImmediate: ContextReporter = new ImmediateReporter(errorBuffer, warningBuffer)
@@ -1699,12 +1695,12 @@ trait Contexts { self: Analyzer =>
    */
   private[typechecker] class ThrowingReporter extends ContextReporter {
     override def isThrowing = true
-    protected def handleError(pos: Position, msg: String): Unit = throw new TypeError(pos, msg)
+    def error(pos: Position, msg: String): Unit = throw new TypeError(pos, msg)
   }
 
   /** Used during a run of [[scala.tools.nsc.typechecker.TreeCheckers]]? */
   private[typechecker] class CheckingReporter extends ContextReporter {
-    protected def handleError(pos: Position, msg: String): Unit = onTreeCheckerError(pos, msg)
+    def error(pos: Position, msg: String): Unit = onTreeCheckerError(pos, msg)
   }
 
   class ImportInfo(val tree: Import, val depth: Int, val isRootImport: Boolean) {
@@ -1720,7 +1716,7 @@ trait Contexts { self: Analyzer =>
     }
 
     /** Is name imported explicitly, not via wildcard? */
-    def isExplicitImport(name: Name): Boolean = tree.selectors.exists(_.introduces(name.toTermName))
+    def isExplicitImport(name: Name): Boolean = tree.selectors.exists(_.introduces(name))
 
     /** The symbol with name `name` imported from import clause `tree`. */
     def importedSymbol(name: Name): Symbol = importedSymbol(name, requireExplicit = false, record = true)
@@ -1741,11 +1737,10 @@ trait Contexts { self: Analyzer =>
       var selectors = tree.selectors
       @inline def current = selectors.head
       while ((selectors ne Nil) && result == NoSymbol) {
-        if (current.introduces(name.toTermName))
+        if (current.introduces(name))
           result = qual.tpe.nonLocalMember( // #2733: consider only non-local members for imports
-            if (name.isTypeName) current.name.toTypeName else current.name
-          )
-        else if (!current.isWildcard && current.name == name.toTermName)
+            if (name.isTypeName) current.name.toTypeName else current.name)
+        else if (!current.isWildcard && current.hasName(name))
           renamed = true
         else if (current.isWildcard && !renamed && !requireExplicit)
           result = qual.tpe.nonLocalMember(name)

@@ -19,8 +19,6 @@ import java.net.{ URI, URL }
 
 /** This object provides convenience methods to create an iterable
  *  representation of a source file.
- *
- *  @author  Burak Emir, Paul Phillips
  */
 object Source {
   val DefaultBufSize = 2048
@@ -215,8 +213,8 @@ abstract class Source extends Iterator[Char] with Closeable {
     private[this] val sb = new StringBuilder
 
     lazy val iter: BufferedIterator[Char] = Source.this.iter.buffered
-    def isNewline(ch: Char) = ch == '\r' || ch == '\n'
-    def getc() = iter.hasNext && {
+    def isNewline(ch: Char): Boolean = ch == '\r' || ch == '\n'
+    def getc(): Boolean = iter.hasNext && {
       val ch = iter.next()
       if (ch == '\n') false
       else if (ch == '\r') {
@@ -230,8 +228,8 @@ abstract class Source extends Iterator[Char] with Closeable {
         true
       }
     }
-    def hasNext = iter.hasNext
-    def next() = {
+    def hasNext: Boolean = iter.hasNext
+    def next(): String = {
       sb.clear()
       while (getc()) { }
       sb.toString
@@ -246,7 +244,7 @@ abstract class Source extends Iterator[Char] with Closeable {
 
   /** Returns `'''true'''` if this source has more characters.
    */
-  def hasNext = iter.hasNext
+  def hasNext: Boolean = iter.hasNext
 
   /** Returns next character.
    */
@@ -292,8 +290,8 @@ abstract class Source extends Iterator[Char] with Closeable {
   object NoPositioner extends Positioner(Position) {
     override def next(): Char = iter.next()
   }
-  def ch = positioner.ch
-  def pos = positioner.pos
+  def ch: Char = positioner.ch
+  def pos: Int = positioner.pos
 
   /** Reports an error message to the output stream `out`.
    *

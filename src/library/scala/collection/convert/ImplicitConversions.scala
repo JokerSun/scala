@@ -21,6 +21,7 @@ import scala.collection.JavaConverters._
 import scala.language.implicitConversions
 
 /** Defines implicit converter methods from Java to Scala collections. */
+@deprecated("Use `scala.jdk.CollectionConverters` instead", "2.13.0")
 trait ToScalaImplicits {
   /** Implicitly converts a Java `Iterator` to a Scala `Iterator`.
    *  @see [[JavaConverters.asScalaIterator]]
@@ -74,6 +75,7 @@ trait ToScalaImplicits {
 }
 
 /** Defines implicit conversions from Scala to Java collections. */
+@deprecated("Use `scala.jdk.CollectionConverters` instead", "2.13.0")
 trait ToJavaImplicits {
   /** Implicitly converts a Scala `Iterator` to a Java `Iterator`.
    *  @see [[JavaConverters.asJavaIterator]]
@@ -147,7 +149,7 @@ trait ToJavaImplicits {
  * It is recommended to use explicit conversions provided by [[collection.JavaConverters]] instead.
  * Implicit conversions may cause unexpected issues, see [[ImplicitConversions]].
  */
-@deprecated("Use `scala.jdk.CollectionConverters.Ops` instead", "2.13.0")
+@deprecated("Use `scala.jdk.CollectionConverters` instead", "2.13.0")
 object ImplicitConversionsToJava extends ToJavaImplicits
 
 /**
@@ -156,7 +158,7 @@ object ImplicitConversionsToJava extends ToJavaImplicits
  * It is recommended to use explicit conversions provided by [[collection.JavaConverters]] instead.
  * Implicit conversions may cause unexpected issues, see [[ImplicitConversions]].
  */
-@deprecated("Use `scala.jdk.CollectionConverters.Ops` instead", "2.13.0")
+@deprecated("Use `scala.jdk.CollectionConverters` instead", "2.13.0")
 object ImplicitConversionsToScala extends ToScalaImplicits
 
 /**
@@ -175,5 +177,5 @@ object ImplicitConversionsToScala extends ToScalaImplicits
  * The above example returns `null` instead of producing a type error at compile-time. The map is
  * implicitly converted to a `java.util.Map` which provides a method `get(x: AnyRef)`.
  */
-@deprecated("Use `scala.jdk.CollectionConverters.Ops` instead", "2.13.0")
+@deprecated("Use `scala.jdk.CollectionConverters` instead", "2.13.0")
 object ImplicitConversions extends ToScalaImplicits with ToJavaImplicits

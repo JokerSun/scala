@@ -15,9 +15,8 @@ package tools.nsc
 package symtab
 package classfile
 
-import java.io.{ByteArrayInputStream, DataInputStream, File, IOException}
+import java.io.IOException
 import java.lang.Integer.toHexString
-import java.nio.ByteBuffer
 
 import scala.collection.{immutable, mutable}
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -25,7 +24,7 @@ import scala.annotation.switch
 import scala.reflect.internal.JavaAccFlags
 import scala.reflect.internal.pickling.ByteCodecs
 import scala.reflect.internal.util.ReusableInstance
-import scala.reflect.io.{NoAbstractFile, VirtualFile}
+import scala.reflect.io.NoAbstractFile
 import scala.tools.nsc.util.ClassPath
 import scala.tools.nsc.io.AbstractFile
 import scala.util.control.NonFatal
@@ -33,7 +32,6 @@ import scala.util.control.NonFatal
 /** This abstract class implements a class file parser.
  *
  *  @author Martin Odersky
- *  @version 1.0
  */
 abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
   val symbolTable: SymbolTable {
@@ -98,6 +96,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
   private def readFieldFlags()      = JavaAccFlags fieldFlags u2
   private def readTypeName()        = readName().toTypeName
   private def readName()            = pool.getName(u2).name
+  @annotation.unused
   private def readType()            = pool getType u2
 
   private object unpickler extends scala.reflect.internal.pickling.UnPickler {
@@ -154,7 +153,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
         if (magic != JAVA_MAGIC && file.name.endsWith(".sig")) {
           currentClass = clazz.javaClassName
           isScala = true
-          unpickler.unpickle(in.buf, 0, clazz, staticModule, file.name)
+          unpickler.unpickle(in.buf.take(file.sizeOption.get), 0, clazz, staticModule, file.name)
         } else {
           parseHeader()
           this.pool = new ConstantPool
@@ -209,6 +208,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
         (u1: @switch) match {
           case CONSTANT_UTF8 | CONSTANT_UNICODE                                => in skip u2
           case CONSTANT_CLASS | CONSTANT_STRING | CONSTANT_METHODTYPE          => in skip 2
+          case CONSTANT_MODULE | CONSTANT_PACKAGE                              => in skip 2
           case CONSTANT_METHODHANDLE                                           => in skip 3
           case CONSTANT_FIELDREF | CONSTANT_METHODREF | CONSTANT_INTFMETHODREF => in skip 4
           case CONSTANT_NAMEANDTYPE | CONSTANT_INTEGER | CONSTANT_FLOAT        => in skip 4
@@ -351,7 +351,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
 
     /**
      * Get an array of bytes stored in the classfile as a string. The data is encoded in the format
-     * described in object [[ByteCodecs]]. Used for the ScalaSignature annotation argument.
+     * described in object [[scala.reflect.internal.pickling.ByteCodecs]]. Used for the ScalaSignature annotation argument.
      */
     def getBytes(index: Int): Array[Byte] = {
       if (index <= 0 || len <= index) errorBadIndex(index)
@@ -368,7 +368,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
 
     /**
      * Get an array of bytes stored in the classfile as an array of strings. The data is encoded in
-     * the format described in object [[ByteCodecs]]. Used for the ScalaLongSignature annotation
+     * the format described in object [[scala.reflect.internal.pickling.ByteCodecs]]. Used for the ScalaLongSignature annotation
      * argument.
      */
     def getBytes(indices: List[Int]): Array[Byte] = {
@@ -487,18 +487,9 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
       if (!c.isInstanceOf[StubSymbol] && c != clazz) mismatchError(c)
     }
 
-    // TODO: remove after the next 2.13 milestone
-    // A bug in the backend caused classes ending in `$` do get only a Scala marker attribute
-    // instead of a ScalaSig and a Signature annotaiton. This went unnoticed because isScalaRaw
-    // classes were parsed like Java classes. The below covers the cases in the std lib.
-    def isNothingOrNull = {
-      val n = clazz.fullName.toString
-      n == "scala.runtime.Nothing$" || n == "scala.runtime.Null$"
-    }
-
     if (isScala) {
       () // We're done
-    } else if (isScalaRaw && !isNothingOrNull) {
+    } else if (isScalaRaw) {
       val decls = clazz.enclosingPackage.info.decls
       for (c <- List(clazz, staticModule, staticModule.moduleClass)) {
         c.setInfo(NoType)
@@ -678,14 +669,14 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
                     case variance @ ('+' | '-' | '*') =>
                       index += 1
                       val bounds = variance match {
-                        case '+' => TypeBounds.upper(objToAny(sig2type(tparams, skiptvs)))
+                        case '+' => TypeBounds.upper(sig2type(tparams, skiptvs))
                         case '-' =>
                           val tp = sig2type(tparams, skiptvs)
-                          // sig2type seems to return AnyClass regardless of the situation:
-                          // we don't want Any as a LOWER bound.
-                          if (tp.typeSymbol == AnyClass) TypeBounds.empty
-                          else TypeBounds.lower(tp)
-                        case '*' => TypeBounds.empty
+                          // Interpret `sig2type` returning `Any` as "no bounds";
+                          // morally equivalent to TypeBounds.empty, but we're representing Java code, so use ObjectTpeJava for AnyTpe.
+                          if (tp.typeSymbol == AnyClass) TypeBounds.upper(definitions.ObjectTpeJava)
+                          else TypeBounds(tp, definitions.ObjectTpeJava)
+                        case '*' => TypeBounds.upper(definitions.ObjectTpeJava)
                       }
                       val newtparam = sym.newExistential(newTypeName("?"+i), sym.pos) setInfo bounds
                       existentials += newtparam
@@ -714,7 +705,8 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
 
           val classSym = classNameToSymbol(subName(c => c == ';' || c == '<'))
           assert(!classSym.isOverloaded, classSym.alternatives)
-          var tpe = processClassType(processInner(classSym.tpe_*))
+          val classTpe = if (classSym eq ObjectClass) ObjectTpeJava else classSym.tpe_*
+          var tpe = processClassType(processInner(classTpe))
           while (sig.charAt(index) == '.') {
             accept('.')
             val name = newTypeName(subName(c => c == ';' || c == '<' || c == '.'))
@@ -731,10 +723,8 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
           // make unbounded Array[T] where T is a type variable into Array[T with Object]
           // (this is necessary because such arrays have a representation which is incompatible
           // with arrays of primitive types.
-          // NOTE that the comparison to Object only works for abstract types bounded by classes that are strict subclasses of Object
-          // if the bound is exactly Object, it will have been converted to Any, and the comparison will fail
           // see also RestrictJavaArraysMap (when compiling java sources directly)
-          if (elemtp.typeSymbol.isAbstractType && !(elemtp <:< ObjectTpe)) {
+          if (elemtp.typeSymbol.isAbstractType && elemtp.upperBound =:= ObjectTpe) {
             elemtp = intersectionType(List(elemtp, ObjectTpe))
           }
 
@@ -744,7 +734,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
           assert(sym ne null, sig)
           val paramtypes = new ListBuffer[Type]()
           while (sig.charAt(index) != ')') {
-            paramtypes += objToAny(sig2type(tparams, skiptvs))
+            paramtypes += sig2type(tparams, skiptvs)
           }
           index += 1
           val restype = if (sym != null && sym.isClassConstructor) {
@@ -752,7 +742,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
             clazz.tpe_*
           } else
             sig2type(tparams, skiptvs)
-          JavaMethodType(sym.newSyntheticValueParams(paramtypes.toList), restype)
+          MethodType(sym.newSyntheticValueParams(paramtypes.toList), restype)
         case 'T' =>
           val n = newTypeName(subName(';'.==))
           index += 1
@@ -766,7 +756,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
       while (sig.charAt(index) == ':') {
         index += 1
         if (sig.charAt(index) != ':') // guard against empty class bound
-          ts += objToAny(sig2type(tparams, skiptvs))
+          ts += sig2type(tparams, skiptvs)
       }
       TypeBounds.upper(intersectionType(ts.toList, sym))
     }
@@ -802,7 +792,8 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
         classTParams = tparams
         val parents = new ListBuffer[Type]()
         while (index < end) {
-          parents += sig2type(tparams, skiptvs = false)  // here the variance doesn't matter
+          val parent = sig2type(tparams, skiptvs = false) // here the variance doesn't matter
+          parents += (if (parent == ObjectTpeJava) ObjectTpe else parent)
         }
         ClassInfoType(parents.toList, instanceScope, sym)
       }
@@ -883,8 +874,8 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
             // https://github.com/scala/scala/commit/7315339782f6e19ddd6199768352a91ef66eb27d
             // https://github.com/scala-ide/scala-ide/commit/786ea5d4dc44065379a05eb3ac65d37f8948c05d
             //
-            // TODO: can we disable this altogether? Does Scala-IDE actually intermingle source and classfiles in a way
-            //       that this could ever find something?
+            // TODO: Does Scala-IDE actually intermingle source and classfiles in a way that this could ever find something?
+            //       If they want to use this, they'll need to enable the new setting -Ypresentation-locate-source-file.
             val srcfileLeaf = readName().toString.trim
             val srcpath = sym.enclosingPackage match {
               case NoSymbol => srcfileLeaf
@@ -1267,7 +1258,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
     }
   }
   private class ParamNames(val names: Array[NameOrString], val access: Array[Int]) {
-    assert(names.length == access.length)
+    assert(names.length == access.length, "Require as many names as access")
     def length = names.length
   }
   private abstract class JavaTypeCompleter extends LazyType {
@@ -1280,8 +1271,9 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
     override def complete(sym: symbolTable.Symbol): Unit = {
       val info = if (sig != null) sigToType(sym, sig) else {
         val superTpe = if (parent == null) definitions.AnyClass.tpe_* else getClassSymbol(parent.value).tpe_*
-        var ifacesTypes = ifaces.filterNot(_ eq null).map(x => getClassSymbol(x.value).tpe_*)
-        ClassInfoType(superTpe :: ifacesTypes, instanceScope, clazz)
+        val superTpe1 = if (superTpe == ObjectTpeJava) ObjectTpe else superTpe
+        val ifacesTypes = ifaces.filterNot(_ eq null).map(x => getClassSymbol(x.value).tpe_*)
+        ClassInfoType(superTpe1 :: ifacesTypes, instanceScope, clazz)
       }
       sym.setInfo(info)
     }

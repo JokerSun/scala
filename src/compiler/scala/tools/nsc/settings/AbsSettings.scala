@@ -71,7 +71,7 @@ trait AbsSettings extends scala.reflect.internal.settings.AbsSettings {
      *  we can't use "this.type", at least not in a non-casty manner, which
      *  is unfortunate because we lose type information without it.
      *
-     *  ...but now they're this.type because of #3462.  The immutable
+     *  ...but now they're this.type because of scala/bug#3462.  The immutable
      *  side doesn't exist yet anyway.
      */
     def withAbbreviation(name: String): this.type
@@ -130,8 +130,8 @@ trait AbsSettings extends scala.reflect.internal.settings.AbsSettings {
     def isAdvanced   = name.startsWith("-X") && name != "-X"
     def isPrivate    = name.startsWith("-Y") && name != "-Y"
     def isVerbose    = name.startsWith("-V") && name != "-V"
-    def isWarning    = name match { case "-W" | "-Werror" => false ; case "-Xlint" => true ; case _  => name.startsWith("-W") }
-    def isStandard   = !isAdvanced && !isPrivate && !isWarning && !isVerbose
+    def isWarning    = name.startsWith("-W") && name != "-W" || name == "-Xlint"
+    def isStandard   = !isAdvanced && !isPrivate && !isWarning && !isVerbose || name == "-Werror"
     def isDeprecated = deprecationMessage.isDefined
 
     def compare(that: Setting): Int = name compare that.name

@@ -12,14 +12,10 @@
 
 package scala.ref
 
-/**
- *  @author Sean McDirmid
- *  @author Philipp Haller
- */
 class ReferenceQueue[+T <: AnyRef] {
 
   private[ref] val underlying: java.lang.ref.ReferenceQueue[_ <: T] = new java.lang.ref.ReferenceQueue[T]
-  override def toString = underlying.toString
+  override def toString: String = underlying.toString
 
   protected def Wrapper(jref: java.lang.ref.Reference[_]): Option[Reference[T]] =
     jref match {

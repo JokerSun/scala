@@ -15,7 +15,6 @@ package collection
 
 import java.io.{ObjectInputStream, ObjectOutputStream}
 
-import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.Stepper.EfficientSplit
 import scala.collection.mutable.Builder
 
@@ -33,10 +32,9 @@ import scala.collection.mutable.Builder
   * @define Coll `BitSet`
   */
 trait BitSet extends SortedSet[Int] with BitSetOps[BitSet] {
-  override protected def fromSpecific(coll: IterableOnce[Int]): BitSetC = bitSetFactory.fromSpecific(coll)
-  override protected def newSpecificBuilder: Builder[Int, BitSetC] = bitSetFactory.newBuilder
-  override def empty: BitSetC = bitSetFactory.empty
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
+  override protected def fromSpecific(coll: IterableOnce[Int]): BitSet = bitSetFactory.fromSpecific(coll)
+  override protected def newSpecificBuilder: Builder[Int, BitSet] = bitSetFactory.newBuilder
+  override def empty: BitSet = bitSetFactory.empty
   override protected[this] def stringPrefix = "BitSet"
   override def unsorted: Set[Int] = this
 }
@@ -86,18 +84,9 @@ trait BitSetOps[+C <: BitSet with BitSetOps[C]]
   extends SortedSetOps[Int, SortedSet, C] { self =>
   import BitSetOps._
 
-  def bitSetFactory: SpecificIterableFactory[Int, BitSetC]
+  def bitSetFactory: SpecificIterableFactory[Int, C]
 
   def unsorted: Set[Int]
-
-  /**
-    * Type alias to `C`. It is used to provide a default implementation of the `fromSpecific`
-    * and `newSpecificBuilder` operations.
-    *
-    * Due to the `@uncheckedVariance` annotation, usage of this type member can be unsound and is
-    * therefore not recommended.
-    */
-  protected type BitSetC = C @uncheckedVariance
 
   final def ordering: Ordering[Int] = Ordering.Int
 
@@ -130,7 +119,7 @@ trait BitSetOps[+C <: BitSet with BitSetOps[C]]
       else Iterator.empty.next()
   }
 
-  override def stepper[B >: Int, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Int, S]): S with EfficientSplit = {
     val st = scala.collection.convert.impl.BitSetStepper.from(this)
     val r =
       if (shape.shape == StepperShape.IntShape) st

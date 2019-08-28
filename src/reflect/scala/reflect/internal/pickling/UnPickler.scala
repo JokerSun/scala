@@ -26,9 +26,6 @@ import scala.collection.mutable.ListBuffer
 import scala.annotation.switch
 import scala.util.control.NonFatal
 
-/** @author Martin Odersky
- *  @version 1.0
- */
 abstract class UnPickler {
   val symbolTable: SymbolTable
   import symbolTable._
@@ -170,7 +167,7 @@ abstract class UnPickler {
       val savedIndex = readIndex
       readIndex = index(i)
       val tag = readByte().toInt
-      assert(tag == CLASSsym)
+      assert(tag == CLASSsym, "Entry must be a class symbol")
 
       readNat(); // read length
       val result = readNameRef() == tpnme.REFINE_CLASS_NAME
@@ -456,7 +453,7 @@ abstract class UnPickler {
      */
     protected def readChildren(): Unit = {
       val tag = readByte()
-      assert(tag == CHILDREN)
+      assert(tag == CHILDREN, "Entry must be children")
       val end = readEnd()
       val target = readSymbolRef()
       while (readIndex != end) target addChild readSymbolRef()

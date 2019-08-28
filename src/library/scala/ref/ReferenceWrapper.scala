@@ -12,9 +12,6 @@
 
 package scala.ref
 
-/**
- *  @author Sean McDirmid
- */
 trait ReferenceWrapper[+T <: AnyRef] extends Reference[T] with Proxy {
   val underlying: java.lang.ref.Reference[_ <: T]
   override def get = Option(underlying.get)
@@ -23,15 +20,12 @@ trait ReferenceWrapper[+T <: AnyRef] extends Reference[T] with Proxy {
     if (ret eq null) throw new NoSuchElementException
     ret
   }
-  def clear() = underlying.clear()
-  def enqueue() = underlying.enqueue()
-  def isEnqueued = underlying.isEnqueued
-  def self = underlying
+  def clear(): Unit = underlying.clear()
+  def enqueue(): Boolean = underlying.enqueue()
+  def isEnqueued: Boolean = underlying.isEnqueued
+  def self: java.lang.ref.Reference[_ <: T] = underlying
 }
 
-/**
- *  @author Philipp Haller
- */
 private trait ReferenceWithWrapper[T <: AnyRef] {
   val wrapper: ReferenceWrapper[T]
 }

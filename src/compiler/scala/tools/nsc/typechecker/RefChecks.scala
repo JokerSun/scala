@@ -43,7 +43,6 @@ import transform.Transform
  *  </ul>
  *
  *  @author  Martin Odersky
- *  @version 1.0
  *
  *  @todo    Check whether we always check type parameter bounds.
  */
@@ -1396,7 +1395,7 @@ abstract class RefChecks extends Transform {
     }
 
     private def applyRefchecksToAnnotations(tree: Tree): Unit = {
-      def applyChecks(annots: List[AnnotationInfo]): List[AnnotationInfo] = {
+      def applyChecks(annots: List[AnnotationInfo]): List[AnnotationInfo] = if (annots.isEmpty) Nil else {
         annots.foreach { ann =>
           checkTypeRef(ann.atp, tree, skipBounds = false)
           checkTypeRefBounds(ann.atp, tree)

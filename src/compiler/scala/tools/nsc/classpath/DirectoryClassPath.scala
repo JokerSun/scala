@@ -20,7 +20,7 @@ import java.util
 import scala.reflect.io.{AbstractFile, PlainFile, PlainNioFile}
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation}
 import FileUtils._
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.reflect.internal.JDK9Reflectors
 import scala.tools.nsc.CloseableRegistry
 import scala.tools.nsc.classpath.PackageNameUtils.{packageContains, separatePkgAndClassNames}
@@ -213,7 +213,7 @@ final class JrtClassPath(fs: java.nio.file.FileSystem) extends ClassPath with No
     if (inPackage == "") ClassPathEntries(packages(inPackage), Nil)
     else ClassPathEntries(packages(inPackage), classes(inPackage))
 
-  def asURLs: Seq[URL] = Seq(dir.toUri.toURL)
+  def asURLs: Seq[URL] = Seq(new URL("jrt:/"))
   // We don't yet have a scheme to represent the JDK modules in our `-classpath`.
   // java models them as entries in the new "module path", we'll probably need to follow this.
   def asClassPathStrings: Seq[String] = Nil
@@ -231,7 +231,7 @@ final class JrtClassPath(fs: java.nio.file.FileSystem) extends ClassPath with No
 }
 
 /**
-  * Implementation `ClassPath` based on the $JAVA_HOME/lib/ct.sym backing http://openjdk.java.net/jeps/247
+  * Implementation `ClassPath` based on the \$JAVA_HOME/lib/ct.sym backing http://openjdk.java.net/jeps/247
   */
 final class CtSymClassPath(ctSym: java.nio.file.Path, release: Int) extends ClassPath with NoSourcePaths with Closeable {
   import java.nio.file.Path, java.nio.file._

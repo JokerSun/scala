@@ -15,7 +15,7 @@ package scala.tools.nsc
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.{FileVisitResult, Files, Path, SimpleFileVisitor, _}
 
-import scala.jdk.CollectionConverters.Ops._
+import scala.jdk.CollectionConverters._
 import scala.reflect.internal.pickling.ByteCodecs
 import scala.reflect.io.RootPath
 import scala.tools.asm.tree.ClassNode
@@ -46,12 +46,19 @@ object PickleExtractor {
         }
         override def visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult = {
           if (file.getFileName.toString.endsWith(".class")) {
-            stripClassFile(Files.readAllBytes(file)) match {
-              case Class(out) =>
-                Files.write(outputPath.root.resolve(root.relativize(file).toString), out)
-              case Pickle(out) =>
-                Files.write(outputPath.root.resolve(root.relativize(file).toString.replaceAll(".class$", ".sig")), out)
-              case Skip =>
+            try {
+              stripClassFile(Files.readAllBytes(file)) match {
+                case Class(out) =>
+                  Files.write(outputPath.root.resolve(root.relativize(file).toString), out)
+                case Pickle(out) =>
+                  Files.write(outputPath.root.resolve(root.relativize(file).toString.replaceAll(".class$", ".sig")), out)
+                case Skip =>
+              }
+            } catch {
+              case ex: RuntimeException =>
+                throw new RuntimeException("While parsing: " + file +  " in " + inputPath
+                  , ex)
+
             }
           }
           FileVisitResult.CONTINUE

@@ -14,10 +14,7 @@ package scala
 package collection
 package mutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.collection.generic.DefaultSerializationProxy
-
 
 /** This class implements mutable maps with `AnyRef` keys based on a hash table with open addressing.
  *
@@ -209,7 +206,7 @@ class AnyRefMap[K <: AnyRef, V] private[collection] (defaultEntry: K => V, initi
   /** Defers to defaultEntry to find a default value for the key.  Throws an
    *  exception if no other default behavior was specified.
    */
-  override def default(key: K) = defaultEntry(key)
+  override def default(key: K): V = defaultEntry(key)
 
   private def repack(newMask: Int): Unit = {
     val oh = _hashes
@@ -483,7 +480,6 @@ class AnyRefMap[K <: AnyRef, V] private[collection] (defaultEntry: K => V, initi
 
   protected[this] def writeReplace(): AnyRef = new DefaultSerializationProxy(AnyRefMap.toFactory[K, V](AnyRefMap), this)
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "AnyRefMap"
 }
 

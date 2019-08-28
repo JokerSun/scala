@@ -15,8 +15,6 @@ package collection
 package immutable
 
 import scala.annotation.tailrec
-import scala.annotation.unchecked.uncheckedVariance
-import scala.collection.mutable
 
 /** This class implements immutable maps using a vector/map-based data structure, which preserves insertion order.
   *
@@ -26,10 +24,6 @@ import scala.collection.mutable
   *  @tparam K      the type of the keys contained in this vector map.
   *  @tparam V      the type of the values associated with the keys in this vector map.
   *
-  * @author Matthew de Detrich
-  * @author Odd Möller
-  * @version 2.13
-  * @since 2.13
   * @define coll immutable vector map
   * @define Coll `immutable.VectorMap`
   */
@@ -120,6 +114,16 @@ final class VectorMap[K, +V] private (
       result
     }
   }
+
+  // No-Op overrides to allow for more efficient steppers in a minor release.
+  // Refining the return type to `S with EfficientSplit` is binary compatible.
+
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[(K, V), S]): S = super.stepper(shape)
+
+  override def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S = super.keyStepper(shape)
+
+  override def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S = super.valueStepper(shape)
+
 
   def removed(key: K): VectorMap[K, V] = {
     if (isEmpty) empty

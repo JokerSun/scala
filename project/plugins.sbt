@@ -17,7 +17,7 @@ buildInfoKeys := Seq[BuildInfoKey](buildClasspath)
 
 buildInfoPackage := "scalabuild"
 
-addSbtPlugin("com.typesafe" % "sbt-mima-plugin" % "0.1.18")
+addSbtPlugin("com.typesafe" % "sbt-mima-plugin" % "0.3.0")
 
 libraryDependencies ++= Seq(
   "org.eclipse.jgit" % "org.eclipse.jgit" % "4.6.0.201612231935-r",
@@ -37,6 +37,8 @@ addSbtPlugin("de.heikoseeberger" % "sbt-header" % "5.0.0")
 
 // See DottySupport.scala
 if (Option(System.getProperty("scala.build.compileWithDotty")).map(_.toBoolean).getOrElse(false))
-  Seq(addSbtPlugin("ch.epfl.lamp" % "sbt-dotty" % "0.3.0"))
+  Seq(addSbtPlugin("ch.epfl.lamp" % "sbt-dotty" % "0.3.3"))
 else
   Seq()
+
+addSbtPlugin("com.lightbend" % "sbt-whitesource" % "0.1.16")

@@ -23,7 +23,7 @@ trait TestBase {
     body(new Done {
       def apply(proof: => Boolean): Unit = q offer Try(proof)
     })
-    assert(Option(q.poll(2000, TimeUnit.MILLISECONDS)).map(_.get).getOrElse(false))
+    assert(Option(q.poll(5000, TimeUnit.MILLISECONDS)).map(_.get).getOrElse(false))
     // Check that we don't get more than one completion
     assert(q.poll(50, TimeUnit.MILLISECONDS) eq null)
   }
@@ -752,7 +752,7 @@ class BlockContexts extends TestBase {
   def testPushCustom(): Unit = {
     val orig = BlockContext.current
     val customBC = new BlockContext() {
-      override def blockOn[T](thunk: =>T)(implicit permission: CanAwait): T = orig.blockOn(thunk)
+      override def blockOn[T](thunk: => T)(implicit permission: CanAwait): T = orig.blockOn(thunk)
     }
 
     val bc = getBlockContext({
@@ -768,7 +768,7 @@ class BlockContexts extends TestBase {
   def testPopCustom(): Unit = {
     val orig = BlockContext.current
     val customBC = new BlockContext() {
-      override def blockOn[T](thunk: =>T)(implicit permission: CanAwait): T = orig.blockOn(thunk)
+      override def blockOn[T](thunk: => T)(implicit permission: CanAwait): T = orig.blockOn(thunk)
     }
 
     val bc = getBlockContext({

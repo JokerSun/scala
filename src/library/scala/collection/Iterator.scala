@@ -12,8 +12,6 @@
 
 package scala.collection
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.collection.mutable.{ArrayBuffer, Builder, ImmutableBuilder}
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
@@ -335,25 +333,28 @@ trait Iterator[+A] extends IterableOnce[A] with IterableOnceOps[A, Iterator, Ite
    *  the second argument `step` is how far to advance the window
    *  on each iteration. The `step` defaults to `1`.
    *
-   *  The default `GroupedIterator` can be configured to either
+   *  The returned `GroupedIterator` can be configured to either
    *  pad a partial result to size `size` or suppress the partial
    *  result entirely.
    *
    *  Example usages:
    *  {{{
-   *    // Returns List(List(1, 2, 3), List(2, 3, 4), List(3, 4, 5))
+   *    // Returns List(ArraySeq(1, 2, 3), ArraySeq(2, 3, 4), ArraySeq(3, 4, 5))
    *    (1 to 5).iterator.sliding(3).toList
-   *    // Returns List(List(1, 2, 3, 4), List(4, 5))
+   *    // Returns List(ArraySeq(1, 2, 3, 4), ArraySeq(4, 5))
    *    (1 to 5).iterator.sliding(4, 3).toList
-   *    // Returns List(List(1, 2, 3, 4))
+   *    // Returns List(ArraySeq(1, 2, 3, 4))
    *    (1 to 5).iterator.sliding(4, 3).withPartial(false).toList
-   *    // Returns List(List(1, 2, 3, 4), List(4, 5, 20, 25))
+   *    // Returns List(ArraySeq(1, 2, 3, 4), ArraySeq(4, 5, 20, 25))
    *    // Illustrating that withPadding's argument is by-name.
    *    val it2 = Iterator.iterate(20)(_ + 5)
    *    (1 to 5).iterator.sliding(4, 3).withPadding(it2.next).toList
    *  }}}
    *
-   *  @return An iterator producing `Seq[B]`s of size `size`, except the
+   *  @param size the number of elements per group
+   *  @param step the distance between the first elements of successive
+   *         groups
+   *  @return A `GroupedIterator` producing `Seq[B]`s of size `size`, except the
    *          last element (which may be the only element) will be truncated
    *          if there are fewer than `size` elements remaining to be grouped.
    *          This behavior can be configured.
@@ -555,16 +556,38 @@ trait Iterator[+A] extends IterableOnce[A] with IterableOnceOps[A, Iterator, Ite
   }
 
   def flatMap[B](f: A => IterableOnce[B]): Iterator[B] = new AbstractIterator[B] {
-    private[this] var myCurrent: Iterator[B] = Iterator.empty
-    private def current = {
-      while (!myCurrent.hasNext && self.hasNext) {
-        myCurrent = null   // clear the stale reference before advancing
-        myCurrent = f(self.next()).iterator
-      }
-      myCurrent
+    private[this] var cur: Iterator[B] = Iterator.empty
+    /** Trillium logic boolean: -1 = unknown, 0 = false, 1 = true */
+    private[this] var _hasNext: Int = -1
+
+    private[this] def nextCur(): Unit = {
+      cur = null
+      cur = f(self.next()).iterator
+      _hasNext = -1
     }
-    def hasNext = current.hasNext
-    def next() = current.next()
+
+    def hasNext: Boolean = {
+      if (_hasNext == -1) {
+        while (!cur.hasNext) {
+          if (!self.hasNext) {
+            _hasNext = 0
+            // since we know we are exhausted, we can release cur for gc, and as well replace with
+            // static Iterator.empty which will support efficient subsequent `hasNext`/`next` calls
+            cur = Iterator.empty
+            return false
+          }
+          nextCur()
+        }
+        _hasNext = 1
+        true
+      } else _hasNext == 1
+    }
+    def next(): B = {
+      if (hasNext) {
+        _hasNext = -1
+      }
+      cur.next()
+    }
   }
 
   def flatten[B](implicit ev: A => IterableOnce[B]): Iterator[B] =
@@ -630,6 +653,11 @@ trait Iterator[+A] extends IterableOnce[A] with IterableOnceOps[A, Iterator, Ite
       else Iterator.empty.next()
   }
 
+  /**
+    * @inheritdoc
+    *
+    * @note    Reuse: $consumesOneAndProducesTwoIterators
+    */
   def span(p: A => Boolean): (Iterator[A], Iterator[A]) = {
     /*
      * Giving a name to following iterator (as opposed to trailing) because

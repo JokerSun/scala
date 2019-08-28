@@ -42,8 +42,6 @@ import scala.concurrent.ExecutionContext.parasitic
  *  }
  *  }}}
  *
- *  @author  Philipp Haller, Heather Miller, Aleksandar Prokopec, Viktor Klang
- *
  *  @see [[http://docs.scala-lang.org/overviews/core/futures.html Futures and Promises]]
  *
  *  @define multipleCallbacks
@@ -584,7 +582,8 @@ object Future {
       throw new TimeoutException(s"Future timed out after [$atMost]")
     }
 
-    @throws[Exception]
+    @throws[TimeoutException]
+    @throws[InterruptedException]
     override final def result(atMost: Duration)(implicit permit: CanAwait): Nothing = {
       ready(atMost)
       throw new TimeoutException(s"Future timed out after [$atMost]")
@@ -658,7 +657,7 @@ object Future {
   *  @param executor  the execution context on which the future is run
   *  @return          the `Future` holding the result of the computation
   */
-  final def apply[T](body: =>T)(implicit executor: ExecutionContext): Future[T] =
+  final def apply[T](body: => T)(implicit executor: ExecutionContext): Future[T] =
     unit.map(_ => body)
 
   /** Starts an asynchronous computation and returns a `Future` instance with the result of that computation once it completes.
@@ -678,7 +677,7 @@ object Future {
   *  @param executor  the execution context on which the `body` is evaluated in
   *  @return          the `Future` holding the result of the computation
   */
-  final def delegate[T](body: => Future[T])(implicit executor: ExecutionContext): Future[T] =
+  final def `delegate`[T](body: => Future[T])(implicit executor: ExecutionContext): Future[T] =
     unit.flatMap(_ => body)
 
   /** Simple version of `Future.traverse`. Asynchronously and non-blockingly transforms, in essence, a `IterableOnce[Future[A]]`

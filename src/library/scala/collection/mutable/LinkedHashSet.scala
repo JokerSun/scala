@@ -14,17 +14,10 @@ package scala
 package collection
 package mutable
 
-import scala.collection.Stepper.EfficientSplit
 import scala.collection.generic.DefaultSerializable
-
 
 /** This class implements mutable sets using a hashtable.
  *  The iterator and all traversal methods of this class visit elements in the order they were inserted.
- *
- *  @author  Matthias Zenger
- *  @author  Martin Odersky
- *  @author  Pavel Pavlov
- *  @since   1
  *
  *  @tparam A     the type of the elements contained in this set.
  *
@@ -44,20 +37,8 @@ class LinkedHashSet[A]
 
   override def iterableFactory: IterableFactory[LinkedHashSet] = LinkedHashSet
 
-  /**
-   * @return a [[Stepper]] that can be used to operate on the elements of this collections
-   *         with the java Streams API. TODO reference to more documentation.
-   */
-  override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
-    import convert.impl._
-    val s = shape.shape match {
-      case StepperShape.IntShape    => new IntTableStepper[HashEntry[A, Entry]]   (size, table.table, _.next, _.key.asInstanceOf[Int],    0, table.table.length)
-      case StepperShape.LongShape   => new LongTableStepper[HashEntry[A, Entry]]  (size, table.table, _.next, _.key.asInstanceOf[Long],   0, table.table.length)
-      case StepperShape.DoubleShape => new DoubleTableStepper[HashEntry[A, Entry]](size, table.table, _.next, _.key.asInstanceOf[Double], 0, table.table.length)
-      case _         => shape.parUnbox(new AnyTableStepper[B, HashEntry[A, Entry]](size, table.table, _.next, _.key.asInstanceOf[B],      0, table.table.length))
-    }
-    s.asInstanceOf[S with EfficientSplit]
-  }
+  // stepper is not overridden to use XTableStepper because that stepper would not return the
+  // elements in insertion order
 
   type Entry = LinkedHashSet.Entry[A]
 
@@ -164,7 +145,6 @@ class LinkedHashSet[A]
     table.init(in, table.createNewEntry(in.readObject().asInstanceOf[A], null))
   }
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "LinkedHashSet"
 }
 
@@ -186,7 +166,6 @@ object LinkedHashSet extends IterableFactory[LinkedHashSet] {
   def newBuilder[A] = new GrowableBuilder(empty[A])
 
   /** Class for the linked hash set entry, used internally.
-   *  @since 2.10
    */
   private[mutable] final class Entry[A](val key: A) extends HashEntry[A, Entry[A]] {
     var earlier: Entry[A] = null

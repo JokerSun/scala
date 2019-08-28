@@ -14,8 +14,6 @@ package scala
 package collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.annotation.unchecked.uncheckedVariance
 import scala.annotation.tailrec
 import mutable.{Builder, ListBuffer}
@@ -67,8 +65,6 @@ import scala.runtime.Statics.releaseFence
   *        objects that rely on structural sharing), will be serialized and deserialized with multiple lists, one for
   *        each reference to it. I.e. structural sharing is lost after serialization/deserialization.
   *
-  *  @author  Martin Odersky and others
-  *  @since   1.0
   *  @see  [[http://docs.scala-lang.org/overviews/collections/concrete-immutable-collection-classes.html#lists "Scala's Collection Library overview"]]
   *  section on `Lists` for more information.
   *
@@ -260,29 +256,25 @@ sealed abstract class List[+A]
       h
     }
   }
+
   final override def flatMap[B](f: A => IterableOnce[B]): List[B] = {
-    if (this eq Nil) Nil else {
-      var rest = this
-      var found = false
-      var h: ::[B] = null
-      var t: ::[B] = null
-      while (rest ne Nil) {
-        f(rest.head).iterator.foreach { b =>
-          if (!found) {
-            h = new ::(b, Nil)
-            t = h
-            found = true
-          }
-          else {
-            val nx = new ::(b, Nil)
-            t.next = nx
-            t = nx
-          }
+    var rest = this
+    var h: ::[B] = null
+    var t: ::[B] = null
+    while (rest ne Nil) {
+      val it = f(rest.head).iterator
+      while (it.hasNext) {
+        val nx = new ::(it.next(), Nil)
+        if (t eq null) {
+          h = nx
+        } else {
+          t.next = nx
         }
-        rest = rest.tail
+        t = nx
       }
-      if (!found) Nil else {releaseFence(); h}
+      rest = rest.tail
     }
+    if (h eq null) Nil else {releaseFence(); h}
   }
 
   @inline final override def takeWhile(p: A => Boolean): List[A] = {

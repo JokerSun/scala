@@ -24,10 +24,10 @@ import scala.annotation.elidable
 import scala.tools.util.PathResolver.Defaults
 import scala.collection.mutable
 import scala.reflect.internal.util.StringContextStripMarginOps
+import scala.tools.nsc.util.DefaultJarFactory
 
-trait ScalaSettings extends AbsScalaSettings
-                       with StandardScalaSettings
-                       with Warnings {
+
+trait ScalaSettings extends StandardScalaSettings with Warnings {
   self: MutableSettings =>
 
   /** Set of settings */
@@ -110,7 +110,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val Xhelp              = BooleanSetting      ("-X", "Print a synopsis of advanced options.")
   val checkInit          = BooleanSetting      ("-Xcheckinit", "Wrap field accessors to throw an exception on uninitialized access.")
-  val developer          = BooleanSetting      ("-Xdev", "Indicates user is a developer - issue warnings about anything which seems amiss")
+  val developer          = BooleanSetting      ("-Xdev", "Issue warnings about anything which seems amiss in compiler internals. Intended for compiler developers")
   val noassertions       = BooleanSetting      ("-Xdisable-assertions", "Generate no assertions or assumptions.") andThen (flag =>
                                                 if (flag) elidebelow.value = elidable.ASSERTION + 1)
   val elidebelow         = IntSetting          ("-Xelide-below", "Calls to @elidable methods are omitted if method priority is lower than argument",
@@ -133,7 +133,7 @@ trait ScalaSettings extends AbsScalaSettings
   val script             = StringSetting       ("-Xscript", "object", "Treat the source file as a script and wrap it in a main method.", "")
   val mainClass          = StringSetting       ("-Xmain-class", "path", "Class for manifest's Main-Class entry (only useful with -d <jar>)", "")
   val sourceReader       = StringSetting       ("-Xsource-reader", "classname", "Specify a custom method for reading source files.", "")
-  val reporter           = StringSetting       ("-Xreporter", "classname", "Specify a custom reporter for compiler messages.", "scala.tools.nsc.reporters.ConsoleReporter")
+  val reporter           = StringSetting       ("-Xreporter", "classname", "Specify a custom subclass of FilteringReporter for compiler messages.", "scala.tools.nsc.reporters.ConsoleReporter")
   val source             = ScalaVersionSetting ("-Xsource", "version", "Treat compiler input as Scala source for the specified version, see scala/bug#8126.", initial = ScalaVersion("2.13"))
 
   val XnoPatmatAnalysis = BooleanSetting ("-Xno-patmat-analysis", "Don't perform exhaustivity/unreachability analysis. Also, ignore @switch annotation.")
@@ -215,7 +215,7 @@ trait ScalaSettings extends AbsScalaSettings
   val YprintTrees = ChoiceSetting(
       name = "-Yprint-trees",
       helpArg = "style",
-      descr = "How to print trees when -Xprint is enabled.",
+      descr = "How to print trees when -Vprint is enabled.",
       choices = List("text", "compact", "format", "text+format"),
       default = "text"
     ).withPostSetHook(pt => pt.value match {
@@ -225,11 +225,11 @@ trait ScalaSettings extends AbsScalaSettings
       case "text+format" => XshowtreesStringified.value = true
     })
 
-  val Xshowtrees      = BooleanSetting    ("-Yshow-trees", "(Requires -Xprint:) Print detailed ASTs in formatted form.").internalOnly()
+  val Xshowtrees      = BooleanSetting    ("-Yshow-trees", "(Requires -Vprint:) Print detailed ASTs in formatted form.").internalOnly()
   val XshowtreesCompact
-                      = BooleanSetting    ("-Yshow-trees-compact", "(Requires -Xprint:) Print detailed ASTs in compact form.").internalOnly()
+                      = BooleanSetting    ("-Yshow-trees-compact", "(Requires -Vprint:) Print detailed ASTs in compact form.").internalOnly()
   val XshowtreesStringified
-                      = BooleanSetting    ("-Yshow-trees-stringified", "(Requires -Xprint:) Print stringifications along with detailed ASTs.").internalOnly()
+                      = BooleanSetting    ("-Yshow-trees-stringified", "(Requires -Vprint:) Print stringifications along with detailed ASTs.").internalOnly()
 
   val skip            = PhasesSetting     ("-Yskip", "Skip")
   val Ygenasmp        = StringSetting     ("-Ygen-asmp",  "dir", "Generate a parallel output directory of .asmp files (ie ASM Textifier output).", "")
@@ -252,14 +252,19 @@ trait ScalaSettings extends AbsScalaSettings
   val YcacheMacroClassLoader   = CachePolicy.setting("macro", "macros")
   val YmacroClasspath = PathSetting       ("-Ymacro-classpath", "The classpath used to reflectively load macro implementations, default is the compilation classpath.", "")
 
+  val Youtline        = BooleanSetting    ("-Youtline", "Don't compile method bodies. Use together with `-Ystop-afer:pickler to generate the pickled signatures for all source files.").internalOnly()
+
   val exposeEmptyPackage = BooleanSetting ("-Yexpose-empty-package", "Internal only: expose the empty package.").internalOnly()
   val Ydelambdafy        = ChoiceSetting  ("-Ydelambdafy", "strategy", "Strategy used for translating lambdas into JVM code.", List("inline", "method"), "method")
 
+  // Allows a specialised jar to be written. For instance one that provides stable hashing of content, or customisation of the file storage
+  val YjarFactory = StringSetting   ("-YjarFactory", "classname", "factory for jar files", classOf[DefaultJarFactory].getName)
   val YaddBackendThreads = IntSetting   ("-Ybackend-parallelism", "maximum worker threads for backend", 1, Some((1,16)), (x: String) => None )
   val YmaxQueue = IntSetting   ("-Ybackend-worker-queue", "backend threads worker queue size", 0, Some((0,1000)), (x: String) => None )
   val YjarCompressionLevel = IntSetting("-Yjar-compression-level", "compression level to use when writing jar files",
     Deflater.DEFAULT_COMPRESSION, Some((Deflater.DEFAULT_COMPRESSION,Deflater.BEST_COMPRESSION)), (x: String) => None)
   val YpickleJava = BooleanSetting("-Ypickle-java", "Pickler phase should compute pickles for .java defined symbols for use by build tools").internalOnly()
+  val YpickleWrite = StringSetting("-Ypickle-write", "directory|jar", "destination for generated .sig files containing type signatures.", "", None).internalOnly()
 
   sealed abstract class CachePolicy(val name: String, val help: String)
   object CachePolicy {
@@ -360,10 +365,10 @@ trait ScalaSettings extends AbsScalaSettings
         |  <sources>      Classes defined in source files compiled in the current compilation, either
         |                 passed explicitly to the compiler or picked up from the `-sourcepath`
         |
-        |The setting accepts a list of patterns: `-opt-inline-from:p1:p2`. The setting can be passed
+        |The setting accepts a list of patterns: `-opt-inline-from:p1,p2`. The setting can be passed
         |multiple times, the list of patterns gets extended. A leading `!` marks a pattern excluding.
         |The last matching pattern defines whether a classfile is included or excluded (default: excluded).
-        |For example, `a.**:!a.b.**` includes classes in a and sub-packages, but not in a.b and sub-packages.
+        |For example, `a.**,!a.b.**` includes classes in a and sub-packages, but not in a.b and sub-packages.
         |
         |Note: on the command-line you might need to quote patterns containing `*` to prevent the shell
         |from expanding it to a list of files in the current directory.""".stripMargin))
@@ -506,6 +511,8 @@ trait ScalaSettings extends AbsScalaSettings
   val YpresentationLog     = StringSetting("-Ypresentation-log", "file", "Log presentation compiler events into file", "")
   val YpresentationReplay  = StringSetting("-Ypresentation-replay", "file", "Replay presentation compiler events from file", "")
   val YpresentationDelay   = IntSetting("-Ypresentation-delay", "Wait number of ms after typing before starting typechecking", 0, Some((0, 999)), str => Some(str.toInt))
+
+  val YpresentationLocateSourceFile = BooleanSetting("-Ypresentation-locate-source-file", "Enables legacy code in the classfile parser to locate a .scala file in the output directories corresponding to the SourceFile attribute .class file.")
 
   /**
    * -P "Plugin" settings

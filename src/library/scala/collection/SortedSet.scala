@@ -25,7 +25,6 @@ trait SortedSet[A] extends Set[A]
 
   def sortedIterableFactory: SortedIterableFactory[SortedSet] = SortedSet
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "SortedSet"
 }
 
@@ -75,13 +74,13 @@ trait SortedSetOps[A, +CC[X] <: SortedSet[X], +C <: SortedSetOps[A, CC, C]]
     if (isEmpty) throw new UnsupportedOperationException("empty.min")
     else if (ord == ordering) head
     else if (ord isReverseOf ordering) last
-    else super.min
+    else super.min[B] // need the type annotation for it to infer the correct implicit
 
   override def max[B >: A](implicit ord: Ordering[B]): A =
     if (isEmpty) throw new UnsupportedOperationException("empty.max")
     else if (ord == ordering) last
     else if (ord isReverseOf ordering) head
-    else super.max
+    else super.max[B] // need the type annotation for it to infer the correct implicit
 
   def rangeTo(to: A): C = {
     val i = rangeFrom(to).iterator

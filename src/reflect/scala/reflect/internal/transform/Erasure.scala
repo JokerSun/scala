@@ -72,7 +72,7 @@ trait Erasure {
    *  e.g. with "tagged types" like Array[Int] with T.
    */
   def unboundedGenericArrayLevel(tp: Type): Int = tp match {
-    case GenericArray(level, core) if !(core <:< AnyRefTpe) => level
+    case GenericArray(level, core) if !(core <:< AnyRefTpe || core.upperBound == ObjectTpeJava) => level
     case RefinedType(ps, _) if ps.nonEmpty                  => logResult(s"Unbounded generic level for $tp is")(unboundedGenericArrayLevel(intersectionDominator(ps)))
     case _                                                  => 0
   }
@@ -93,7 +93,7 @@ trait Erasure {
    *  This method needs to be called at a phase no later than erasurephase
    */
   def erasedValueClassArg(tref: TypeRef): Type = {
-    assert(!phase.erasedTypes)
+    assert(!phase.erasedTypes, "Types are erased")
     val clazz = tref.sym
     if (valueClassIsParametric(clazz)) {
       val underlying = tref.memberType(clazz.derivedValueClassUnbox).resultType
@@ -108,9 +108,8 @@ trait Erasure {
    *  This method needs to be called at a phase no later than erasurephase
    */
   def valueClassIsParametric(clazz: Symbol): Boolean = {
-    assert(!phase.erasedTypes)
-    clazz.typeParams contains
-      clazz.derivedValueClassUnbox.tpe.resultType.typeSymbol
+    assert(!phase.erasedTypes, "valueClassIsParametric called after erasure")
+    clazz.typeParams contains clazz.derivedValueClassUnbox.tpe.resultType.typeSymbol
   }
 
   abstract class ErasureMap extends TypeMap {

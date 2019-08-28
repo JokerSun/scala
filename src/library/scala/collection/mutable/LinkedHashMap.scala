@@ -14,9 +14,7 @@ package scala
 package collection
 package mutable
 
-import scala.collection.Stepper.EfficientSplit
 import scala.collection.generic.DefaultSerializable
-
 
 /** $factoryInfo
  *  @define Coll `LinkedHashMap`
@@ -36,7 +34,6 @@ object LinkedHashMap extends MapFactory[LinkedHashMap] {
   def newBuilder[K, V] = new GrowableBuilder(empty[K, V])
 
   /** Class for the linked hash map entry, used internally.
-    *  @since 2.8
     */
   private[mutable] final class LinkedEntry[K, V](val key: K, var value: V)
     extends HashEntry[K, LinkedEntry[K, V]] {
@@ -70,31 +67,8 @@ class LinkedHashMap[K, V]
 
   override def mapFactory: MapFactory[LinkedHashMap] = LinkedHashMap
 
-  override def stepper[B >: (K, V), S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit =
-    shape.parUnbox(
-      new convert.impl.AnyTableStepper[B, HashEntry[K, Entry]](size, table.table, _.next, { case node: LinkedHashMap.LinkedEntry[K, V] => (node.key, node.value) }, 0, table.table.length))
-
-  override def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S with EfficientSplit = {
-    import convert.impl._
-    val s = shape.shape match {
-      case StepperShape.IntShape    => new IntTableStepper[HashEntry[K, Entry]]   (size, table.table, _.next, _.key.asInstanceOf[Int],    0, table.table.length)
-      case StepperShape.LongShape   => new LongTableStepper[HashEntry[K, Entry]]  (size, table.table, _.next, _.key.asInstanceOf[Long],   0, table.table.length)
-      case StepperShape.DoubleShape => new DoubleTableStepper[HashEntry[K, Entry]](size, table.table, _.next, _.key.asInstanceOf[Double], 0, table.table.length)
-      case _         => shape.parUnbox(new AnyTableStepper[K, HashEntry[K, Entry]](size, table.table, _.next, _.key,                      0, table.table.length))
-    }
-    s.asInstanceOf[S with EfficientSplit]
-  }
-
-  override def valueStepper[V1 >: V, S <: Stepper[_]](implicit shape: StepperShape[V1, S]): S with EfficientSplit = {
-    import convert.impl._
-    val s = shape.shape match {
-      case StepperShape.IntShape    => new IntTableStepper[HashEntry[K, Entry]]    (size, table.table, _.next, _.asInstanceOf[LinkedHashMap.LinkedEntry[K, Int]].value,    0, table.table.length)
-      case StepperShape.LongShape   => new LongTableStepper[HashEntry[K, Entry]]   (size, table.table, _.next, _.asInstanceOf[LinkedHashMap.LinkedEntry[K, Long]].value,   0, table.table.length)
-      case StepperShape.DoubleShape => new DoubleTableStepper[HashEntry[K, Entry]] (size, table.table, _.next, _.asInstanceOf[LinkedHashMap.LinkedEntry[K, Double]].value, 0, table.table.length)
-      case _         => shape.parUnbox(new AnyTableStepper[V1, HashEntry[K, Entry]](size, table.table, _.next, _.asInstanceOf[LinkedHashMap.LinkedEntry[K, V]].value,      0, table.table.length))
-    }
-    s.asInstanceOf[S with EfficientSplit]
-  }
+  // stepper / keyStepper / valueStepper are not overridden to use XTableStepper because that stepper
+  // would not return the elements in insertion order
 
   private[collection] type Entry = LinkedHashMap.LinkedEntry[K, V]
   private[collection] def _firstEntry: Entry = firstEntry
@@ -246,7 +220,6 @@ class LinkedHashMap[K, V]
     table.init(in, table.createNewEntry(in.readObject().asInstanceOf[K], in.readObject().asInstanceOf[V]))
   }
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "LinkedHashMap"
 }
 

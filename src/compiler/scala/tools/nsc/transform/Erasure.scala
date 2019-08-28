@@ -51,7 +51,12 @@ abstract class Erasure extends InfoTransform
     atPos(tree.pos)(Apply(Select(tree, conversion), Nil))
   }
 
-  private object NeedsSigCollector extends TypeCollector(false) {
+  private object NeedsSigCollector {
+    private val NeedsSigCollector_true = new NeedsSigCollector(true)
+    private val NeedsSigCollector_false = new NeedsSigCollector(false)
+    def apply(isClassConstructor: Boolean) = if (isClassConstructor) NeedsSigCollector_true else NeedsSigCollector_false
+  }
+  private class NeedsSigCollector(isClassConstructor: Boolean) extends TypeCollector(false) {
     def apply(tp: Type): Unit =
       if (!result) {
         tp match {
@@ -69,6 +74,17 @@ abstract class Erasure extends InfoTransform
             untilApply(parents)
           case AnnotatedType(_, atp) =>
             apply(atp)
+          case MethodType(params, resultType) =>
+            if (isClassConstructor) {
+              val sigParams = params match {
+                case head :: tail if head.isOuterParam => tail
+                case _ => params
+              }
+              this.foldOver(sigParams)
+              // skip the result type, it is Void in the signature.
+            } else {
+              tp.foldOver(this)
+            }
           case _ =>
             tp.foldOver(this)
         }
@@ -79,8 +95,8 @@ abstract class Erasure extends InfoTransform
   }
 
   override protected def verifyJavaErasure = settings.Xverify || settings.debug
-  private def needsJavaSig(tp: Type, throwsArgs: List[Type]) = !settings.Ynogenericsig && {
-    def needs(tp: Type) = NeedsSigCollector.collect(tp)
+  private def needsJavaSig(sym: Symbol, tp: Type, throwsArgs: List[Type]) = !settings.Ynogenericsig && {
+    def needs(tp: Type) = NeedsSigCollector(sym.isClassConstructor).collect(tp)
     needs(tp) || throwsArgs.exists(needs)
   }
 
@@ -225,7 +241,7 @@ abstract class Erasure extends InfoTransform
       val ps = ensureClassAsFirstParent(validParents)
       ps.foreach(boxedSig)
     }
-    def boxedSig(tp: Type): Unit = jsig(tp, primitiveOK = false)
+    def boxedSig(tp: Type): Unit = jsig(tp, unboxedVCs = false)
     def boundsSig(bounds: List[Type]): Unit = {
       val (isTrait, isClass) = bounds partition (_.typeSymbol.isTrait)
       isClass match {
@@ -255,13 +271,13 @@ abstract class Erasure extends InfoTransform
     def fullNameInSig(sym: Symbol): Unit = builder.append('L').append(enteringJVM(sym.javaBinaryNameString))
 
     @noinline
-    def jsig(tp0: Type, existentiallyBound: List[Symbol] = Nil, toplevel: Boolean = false, primitiveOK: Boolean = true): Unit = {
+    def jsig(tp0: Type, existentiallyBound: List[Symbol] = Nil, toplevel: Boolean = false, unboxedVCs: Boolean = true): Unit = {
       val tp = tp0.dealias
       tp match {
         case st: SubType =>
-          jsig(st.supertype, existentiallyBound, toplevel, primitiveOK)
+          jsig(st.supertype, existentiallyBound, toplevel, unboxedVCs)
         case ExistentialType(tparams, tpe) =>
-          jsig(tpe, tparams, toplevel, primitiveOK)
+          jsig(tpe, tparams, toplevel, unboxedVCs)
         case TypeRef(pre, sym, args) =>
           def argSig(tp: Type): Unit =
             if (existentiallyBound contains tp.typeSymbol) {
@@ -284,7 +300,7 @@ abstract class Erasure extends InfoTransform
           def classSig(): Unit = {
             markClassUsed(sym)
             val preRebound = pre.baseType(sym.owner) // #2585
-            if (needsJavaSig(preRebound, Nil)) {
+            if (needsJavaSig(sym, preRebound, Nil)) {
               val i = builder.length()
               jsig(preRebound, existentiallyBound)
               if (builder.charAt(i) == 'L') {
@@ -334,25 +350,20 @@ abstract class Erasure extends InfoTransform
           else if (sym == NullClass)
             jsig(RuntimeNullClass.tpe)
           else if (isPrimitiveValueClass(sym)) {
-            if (!primitiveOK) jsig(ObjectTpe)
+            if (!unboxedVCs) jsig(ObjectTpe)
             else if (sym == UnitClass) jsig(BoxedUnitTpe)
             else builder.append(abbrvTag(sym))
           }
           else if (sym.isDerivedValueClass) {
-            val unboxed     = sym.derivedValueClassUnbox.tpe_*.finalResultType
-            val unboxedSeen = (tp memberType sym.derivedValueClassUnbox).finalResultType
-            def unboxedMsg  = if (unboxed == unboxedSeen) "" else s", seen within ${sym.simpleName} as $unboxedSeen"
-            logResult(s"Erasure of value class $sym (underlying type $unboxed$unboxedMsg) is") {
-              if (isPrimitiveValueType(unboxedSeen) && !primitiveOK)
-                classSig
-              else
-                jsig(unboxedSeen, existentiallyBound, toplevel, primitiveOK)
-            }
+            if (unboxedVCs) {
+              val unboxedSeen = (tp memberType sym.derivedValueClassUnbox).finalResultType
+              jsig(unboxedSeen, existentiallyBound, toplevel)
+            } else classSig
           }
           else if (sym.isClass)
             classSig
           else
-            jsig(erasure(sym0)(tp), existentiallyBound, toplevel, primitiveOK)
+            jsig(erasure(sym0)(tp), existentiallyBound, toplevel, unboxedVCs)
         case PolyType(tparams, restpe) =>
           assert(tparams.nonEmpty)
           if (toplevel) polyParamSig(tparams)
@@ -361,29 +372,32 @@ abstract class Erasure extends InfoTransform
         case MethodType(params, restpe) =>
           builder.append('(')
           params foreach (p => {
-            val tp = p.attachments.get[TypeParamVarargsAttachment] match {
-              case Some(att) =>
-                // For @varargs forwarders, a T* parameter has type Array[Object] in the forwarder
-                // instead of Array[T], as the latter would erase to Object (instead of Array[Object]).
-                // To make the generic signature correct ("[T", not "[Object"), an attachment on the
-                // parameter symbol stores the type T that was replaced by Object.
-                builder.append('['); att.typeParamRef
-              case _         => p.tpe
+            val isClassOuterParam = sym0.isClassConstructor && p.isOuterParam
+            if (!isClassOuterParam) {
+              val tp = p.attachments.get[TypeParamVarargsAttachment] match {
+                case Some(att) =>
+                  // For @varargs forwarders, a T* parameter has type Array[Object] in the forwarder
+                  // instead of Array[T], as the latter would erase to Object (instead of Array[Object]).
+                  // To make the generic signature correct ("[T", not "[Object"), an attachment on the
+                  // parameter symbol stores the type T that was replaced by Object.
+                  builder.append('['); att.typeParamRef
+                case _ => p.tpe
+              }
+              jsig(tp)
             }
-            jsig(tp)
           })
           builder.append(')')
           if (restpe.typeSymbol == UnitClass || sym0.isConstructor) builder.append(VOID_TAG) else jsig(restpe)
 
         case RefinedType(parents, decls) =>
-          jsig(intersectionDominator(parents), primitiveOK = primitiveOK)
+          jsig(intersectionDominator(parents), unboxedVCs = unboxedVCs)
         case ClassInfoType(parents, _, _) =>
           superSig(tp.typeSymbol, parents)
         case AnnotatedType(_, atp) =>
-          jsig(atp, existentiallyBound, toplevel, primitiveOK)
+          jsig(atp, existentiallyBound, toplevel, unboxedVCs)
         case BoundedWildcardType(bounds) =>
           println("something's wrong: "+sym0+":"+sym0.tpe+" has a bounded wildcard type")
-          jsig(bounds.hi, existentiallyBound, toplevel, primitiveOK)
+          jsig(bounds.hi, existentiallyBound, toplevel, unboxedVCs)
         case _ =>
           val etp = erasure(sym0)(tp)
           if (etp eq tp) throw new UnknownSig
@@ -391,7 +405,7 @@ abstract class Erasure extends InfoTransform
       }
     }
     val throwsArgs = sym0.annotations flatMap ThrownException.unapply
-    if (needsJavaSig(info, throwsArgs)) {
+    if (needsJavaSig(sym0, info, throwsArgs)) {
       try {
         jsig(info, toplevel = true)
         throwsArgs.foreach { t =>

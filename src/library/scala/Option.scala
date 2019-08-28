@@ -16,8 +16,7 @@ object Option {
 
   import scala.language.implicitConversions
 
-  /** An implicit conversion that converts an option to an iterable value
-   */
+  /** An implicit conversion that converts an option to an iterable value */
   implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
     if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
 
@@ -116,7 +115,7 @@ object Option {
  * bMaybe = Option(abc.get(2))
  * bMaybe match {
  *   case Some(b) =>
- *     println(s"Found $b")
+ *     println(s"Found \$b")
  *   case None =>
  *     println("Not found")
  * }
@@ -127,9 +126,6 @@ object Option {
  *  the implicit conversion tends to leave one with an Iterable in
  *  situations where one could have retained an Option.
  *
- *  @author  Martin Odersky
- *  @author  Matthias Zenger
- *  @since   1.1
  *  @define none `None`
  *  @define some [[scala.Some]]
  *  @define option [[scala.Option]]
@@ -145,7 +141,7 @@ object Option {
  *  @define undefinedorder
  */
 @SerialVersionUID(-114498752079829388L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
-sealed abstract class Option[+A] extends Product with Serializable {
+sealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {
   self =>
 
   /** Returns true if the option is $none, false otherwise.
@@ -158,7 +154,7 @@ sealed abstract class Option[+A] extends Product with Serializable {
    * }
    * }}}
    */
-  def isEmpty: Boolean
+  final def isEmpty: Boolean = this eq None
 
   /** Returns true if the option is an instance of $some, false otherwise.
    *
@@ -170,7 +166,9 @@ sealed abstract class Option[+A] extends Product with Serializable {
    * }
    * }}}
    */
-  def isDefined: Boolean = !isEmpty
+  final def isDefined: Boolean = !isEmpty
+
+  override final def knownSize: Int = if (isEmpty) 0 else 1
 
   /** Returns the option's value.
    *
@@ -346,7 +344,7 @@ sealed abstract class Option[+A] extends Product with Serializable {
    * }}}
    *  @note   Implemented here to avoid the implicit conversion to Iterable.
    */
-  final def nonEmpty = isDefined
+  final def nonEmpty: Boolean = isDefined
 
   /** Necessary to keep $option from being implicitly converted to
    *  [[scala.collection.Iterable]] in `for` comprehensions.
@@ -615,24 +613,16 @@ sealed abstract class Option[+A] extends Product with Serializable {
 
 /** Class `Some[A]` represents existing values of type
  *  `A`.
- *
- *  @author  Martin Odersky
- *  @since   1.0
  */
 @SerialVersionUID(1234815782226070388L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
 final case class Some[+A](value: A) extends Option[A] {
-  def isEmpty = false
-  def get = value
+  def get: A = value
 }
 
 
 /** This case object represents non-existent values.
- *
- *  @author  Martin Odersky
- *  @since   1.0
  */
 @SerialVersionUID(5066590221178148012L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
 case object None extends Option[Nothing] {
-  def isEmpty = true
-  def get = throw new NoSuchElementException("None.get")
+  def get: Nothing = throw new NoSuchElementException("None.get")
 }

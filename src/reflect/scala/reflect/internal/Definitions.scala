@@ -41,7 +41,7 @@ trait Definitions extends api.StandardDefinitions {
   private def newMethod(owner: Symbol, name: TermName, formals: List[Type], restpe: Type, flags: Long): MethodSymbol = {
     val msym   = owner.newMethod(name.encode, NoPosition, flags)
     val params = msym.newSyntheticValueParams(formals)
-    val info = if (owner.isJavaDefined) JavaMethodType(params, restpe) else MethodType(params, restpe)
+    val info = MethodType(params, restpe)
     msym.setInfo(info).markAllCompleted
   }
   private def enterNewMethod(owner: Symbol, name: TermName, formals: List[Type], restpe: Type, flags: Long = 0L): MethodSymbol =
@@ -292,7 +292,19 @@ trait Definitions extends api.StandardDefinitions {
     lazy val BoxedUnitTpe    = BoxedUnitClass.tpe
     lazy val NothingTpe      = NothingClass.tpe
     lazy val NullTpe         = NullClass.tpe
+
+    /** Represents `java.lang.Object` as referenced from Scala code. */
     lazy val ObjectTpe       = ObjectClass.tpe
+
+    /** ObjectTpeJava is a TypeRef that's structurally equal to ObjectTpe, but with its own object identity.
+     *
+     * When referenced from Java (source or bytecode), `Object` should be considered equal to Scala's `Any`,
+     * as these types are both conceptually the top of the subtyping lattice of the respective languages.
+     *
+     * We use `ObjectTpeJava`'s identity to equate it, but not `ObjectTpe`, to `AnyTpe` in subtyping and type equality.
+     */
+    lazy val ObjectTpeJava   = new ObjectTpeJavaRef
+
     lazy val SerializableTpe = SerializableClass.tpe
     lazy val StringTpe       = StringClass.tpe
     lazy val ThrowableTpe    = ThrowableClass.tpe
@@ -447,7 +459,7 @@ trait Definitions extends api.StandardDefinitions {
      // We don't need to deal with JavaRepeatedParamClass here, as `repeatedToSeq` is only called in the patmat translation for Scala sources.
     def repeatedToSeq(tp: Type): Type                        = elementTransform(RepeatedParamClass, tp)(seqType) orElse tp
     def seqToRepeated(tp: Type): Type                        = elementTransform(SeqClass, tp)(scalaRepeatedType) orElse tp
-    def isReferenceArray(tp: Type)                           = elementTest(ArrayClass, tp)(_ <:< AnyRefTpe)
+    def isReferenceArray(tp: Type)                           = elementTest(ArrayClass, tp)(elemtp => elemtp <:< AnyRefTpe || (elemtp eq ObjectTpeJava))
     def isArrayOfSymbol(tp: Type, elem: Symbol)              = elementTest(ArrayClass, tp)(_.typeSymbol == elem)
     def elementType(container: Symbol, tp: Type): Type       = elementExtract(container, tp)
 
@@ -515,8 +527,8 @@ trait Definitions extends api.StandardDefinitions {
     lazy val ReflectPackage              = requiredModule[scala.reflect.`package`.type]
     lazy val ReflectApiPackage           = getPackageObjectIfDefined("scala.reflect.api") // defined in scala-reflect.jar, so we need to be careful
     lazy val ReflectRuntimePackage       = getPackageObjectIfDefined("scala.reflect.runtime") // defined in scala-reflect.jar, so we need to be careful
-         def ReflectRuntimeUniverse      = ReflectRuntimePackage.map(sym => getMemberValue(sym, nme.universe))
-         def ReflectRuntimeCurrentMirror = ReflectRuntimePackage.map(sym => getMemberMethod(sym, nme.currentMirror))
+         def ReflectRuntimeUniverse      = ReflectRuntimePackage.map(sym => getDeclValue(sym, nme.universe))
+         def ReflectRuntimeCurrentMirror = ReflectRuntimePackage.map(sym => getDeclMethod(sym, nme.currentMirror))
 
     lazy val UniverseClass    = getClassIfDefined("scala.reflect.api.Universe") // defined in scala-reflect.jar, so we need to be careful
          def UniverseInternal = getMemberValue(UniverseClass, nme.internal)
@@ -539,6 +551,7 @@ trait Definitions extends api.StandardDefinitions {
     lazy val TypeTagsClass          = getClassIfDefined("scala.reflect.api.TypeTags") // defined in scala-reflect.jar, so we need to be careful
 
     lazy val ApiUniverseClass      = getClassIfDefined("scala.reflect.api.Universe") // defined in scala-reflect.jar, so we need to be careful
+    lazy val ApiQuasiquotesClass   = getClassIfDefined("scala.reflect.api.Quasiquotes") // defined in scala-reflect.jar, so we need to be careful
     lazy val JavaUniverseClass     = getClassIfDefined("scala.reflect.api.JavaUniverse") // defined in scala-reflect.jar, so we need to be careful
 
     lazy val MirrorClass           = getClassIfDefined("scala.reflect.api.Mirror") // defined in scala-reflect.jar, so we need to be careful
@@ -564,10 +577,10 @@ trait Definitions extends api.StandardDefinitions {
 
     // scala/bug#8392 a reflection universe on classpath may not have
     // quasiquotes, if e.g. crosstyping with -Xsource on
-    lazy val QuasiquoteClass             = if (ApiUniverseClass != NoSymbol) getMemberIfDefined(ApiUniverseClass, tpnme.Quasiquote) else NoSymbol
-    lazy val QuasiquoteClass_api         = if (QuasiquoteClass != NoSymbol) getMember(QuasiquoteClass, tpnme.api) else NoSymbol
-    lazy val QuasiquoteClass_api_apply   = if (QuasiquoteClass_api != NoSymbol) getMember(QuasiquoteClass_api, nme.apply) else NoSymbol
-    lazy val QuasiquoteClass_api_unapply = if (QuasiquoteClass_api != NoSymbol) getMember(QuasiquoteClass_api, nme.unapply) else NoSymbol
+    lazy val QuasiquoteClass             = if (ApiUniverseClass != NoSymbol) ApiQuasiquotesClass.info.decl(tpnme.Quasiquote) else NoSymbol
+    lazy val QuasiquoteClass_api         = if (QuasiquoteClass != NoSymbol) QuasiquoteClass.info.decl(tpnme.api) else NoSymbol
+    lazy val QuasiquoteClass_api_apply   = if (QuasiquoteClass_api != NoSymbol) getDeclMethod(QuasiquoteClass_api, nme.apply) else NoSymbol
+    lazy val QuasiquoteClass_api_unapply = if (QuasiquoteClass_api != NoSymbol) getDeclMethod(QuasiquoteClass_api, nme.unapply) else NoSymbol
 
     lazy val ScalaSignatureAnnotation = requiredClass[scala.reflect.ScalaSignature]
     lazy val ScalaLongSignatureAnnotation = requiredClass[scala.reflect.ScalaLongSignature]
@@ -1398,6 +1411,18 @@ trait Definitions extends api.StandardDefinitions {
         case _             => miss
       }
     }
+    def getDeclMethod(owner: Symbol, name: Name): TermSymbol = {
+      getDecl(owner, name.toTermName) match {
+        case x: TermSymbol => x
+        case _             => fatalMissingSymbol(owner, name, "method")
+      }
+    }
+    def getDeclValue(owner: Symbol, name: Name): TermSymbol = {
+      getDecl(owner, name.toTermName) match {
+        case x: TermSymbol => x
+        case _             => fatalMissingSymbol(owner, name, "declared value")
+      }
+    }
 
     private lazy val erasurePhase = findPhaseWithName("erasure")
     def getMemberIfDefined(owner: Symbol, name: Name): Symbol =
@@ -1683,7 +1708,7 @@ trait Definitions extends api.StandardDefinitions {
       lazy val HigherKindsFeature         = getLanguageFeature("higherKinds")
       lazy val ExistentialsFeature        = getLanguageFeature("existentials")
 
-      lazy val ApiUniverseReify = ApiUniverseClass.map(sym => getMemberMethod(sym, nme.reify))
+      lazy val ApiUniverseReify = ApiUniverseClass.map(sym => getDeclIfDefined(sym, nme.reify))
 
       lazy val ReflectRuntimeUniverse      = DefinitionsClass.this.ReflectRuntimeUniverse
       lazy val ReflectRuntimeCurrentMirror = DefinitionsClass.this.ReflectRuntimeCurrentMirror

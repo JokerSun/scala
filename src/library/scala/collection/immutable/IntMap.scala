@@ -13,15 +13,12 @@
 package scala.collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.collection.generic.{BitOperations, DefaultSerializationProxy}
 import scala.collection.mutable.{Builder, ImmutableBuilder}
 import scala.annotation.tailrec
 import scala.annotation.unchecked.uncheckedVariance
 
 /** Utility class for integer maps.
-  *  @author David MacIver
   */
 private[immutable] object IntMapUtils extends BitOperations.Int {
   def branchMask(i: Int, j: Int) = highestOneBit(i ^ j)
@@ -45,7 +42,6 @@ import IntMapUtils._
 /** A companion object for integer maps.
   *
   *  @define Coll  `IntMap`
-  *  @since 2.7
   */
 object IntMap {
   def empty[T] : IntMap[T]  = IntMap.Nil
@@ -174,7 +170,6 @@ import IntMap._
   *
   *  @tparam T    type of the values associated with integer keys.
   *
-  *  @since 2.7
   *  @define Coll `immutable.IntMap`
   *  @define coll immutable integer map
   *  @define mayNotTerminateInf

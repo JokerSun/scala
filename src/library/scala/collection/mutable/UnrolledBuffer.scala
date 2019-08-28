@@ -13,8 +13,6 @@
 package scala.collection
 package mutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.annotation.tailrec
 import scala.collection.generic.DefaultSerializable
 import scala.reflect.ClassTag
@@ -44,7 +42,6 @@ import scala.collection.immutable.Nil
   *
   *  @define coll unrolled buffer
   *  @define Coll `UnrolledBuffer`
-  *  @author Aleksandar Prokopec
   *
   */
 @SerialVersionUID(3L)

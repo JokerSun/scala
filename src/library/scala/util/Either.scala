@@ -35,8 +35,8 @@ package util
  *    }
  *
  *  result match {
- *    case Right(x) => s"You passed me the Int: $x, which I will increment. $x + 1 = ${x+1}"
- *    case Left(x)  => s"You passed me the String: $x"
+ *    case Right(x) => s"You passed me the Int: \$x, which I will increment. \$x + 1 = \${x+1}"
+ *    case Left(x)  => s"You passed me the String: \$x"
  *  }
  *  }}}
  *
@@ -51,10 +51,10 @@ package util
  *
  *  Since `Either` defines the methods `map` and `flatMap`, it can also be used in for comprehensions:
  *  {{{
- *  val right1 = Right(1)   : Right[Double, Int] 
+ *  val right1 = Right(1)   : Right[Double, Int]
  *  val right2 = Right(2)
  *  val right3 = Right(3)
- *  val left23 = Left(23.0) : Left[Double, Int]  
+ *  val left23 = Left(23.0) : Left[Double, Int]
  *  val left42 = Left(42.0)
  *
  *  for {
@@ -116,9 +116,6 @@ package util
  *  } yield x + y + z
  *  // Left(42.0), but unexpectedly a `Either[Double,String]`
  *  }}}
- *
- *  @author <a href="mailto:research@workingmouse.com">Tony Morris</a>, Workingmouse
- *  @since 2.7
  */
 sealed abstract class Either[+A, +B] extends Product with Serializable {
   /** Projects this `Either` as a `Left`.
@@ -159,13 +156,12 @@ sealed abstract class Either[+A, +B] extends Product with Serializable {
    *   val report = for (result <- interactWithDB(someQuery)) yield generateReport(result)
    *   report match {
    *     case Right(r) => send(r)
-   *     case Left(e)  => log(s"report not generated, reason was $e")
+   *     case Left(e)  => log(s"report not generated, reason was \$e")
    *   }
    *   // only report errors
-   *   for (e <- interactWithDB(someQuery).left) log(s"query failed, reason was $e")
+   *   for (e <- interactWithDB(someQuery).left) log(s"query failed, reason was \$e")
    *   }}}
    */
-  @deprecated("use swap instead", "2.13.0")
   def left = Either.LeftProjection(this)
 
   /** Projects this `Either` as a `Right`.
@@ -180,8 +176,8 @@ sealed abstract class Either[+A, +B] extends Product with Serializable {
    *  @example {{{
    *  val result = util.Try("42".toInt).toEither
    *  result.fold(
-   *    e => s"Operation failed with $e",
-   *    v => s"Operation produced value: $v"
+   *    e => s"Operation failed with \$e",
+   *    v => s"Operation produced value: \$v"
    *  )
    *  }}}
    *
@@ -370,7 +366,7 @@ sealed abstract class Either[+A, +B] extends Product with Serializable {
     * rl.flatten //Either[String, Int]: Left("flounder")
     * rr.flatten //Either[String, Int]: Right(7)
     * }}}
-    * 
+    *
     * Equivalent to `flatMap(id => id)`
     */
   def flatten[A1 >: A, B1](implicit ev: B <:< Either[A1, B1]): Either[A1, B1] = flatMap(ev)
@@ -454,8 +450,6 @@ sealed abstract class Either[+A, +B] extends Product with Serializable {
 }
 
 /** The left side of the disjoint union, as opposed to the [[scala.util.Right]] side.
- *
- *  @author <a href="mailto:research@workingmouse.com">Tony Morris</a>, Workingmouse
  */
 final case class Left[+A, +B](value: A) extends Either[A, B] {
   def isLeft  = true
@@ -473,8 +467,6 @@ final case class Left[+A, +B](value: A) extends Either[A, B] {
 }
 
 /** The right side of the disjoint union, as opposed to the [[scala.util.Left]] side.
- *
- *  @author <a href="mailto:research@workingmouse.com">Tony Morris</a>, Workingmouse
  */
 final case class Right[+A, +B](value: B) extends Either[A, B] {
   def isLeft  = false
@@ -501,7 +493,7 @@ object Either {
    *  Either.cond(
    *    userInput.forall(_.isDigit) && userInput.size == 10,
    *    PhoneNumber(userInput),
-   *    s"The input ($userInput) does not look like a phone number"
+   *    s"The input (\$userInput) does not look like a phone number"
    *  }}}
    */
   def cond[A, B](test: Boolean, right: => B, left: => A): Either[A, B] =
@@ -526,10 +518,8 @@ object Either {
 
   /** Projects an `Either` into a `Left`.
    *
-   *  @author <a href="mailto:research@workingmouse.com">Tony Morris</a>, Workingmouse
    *  @see [[scala.util.Either#left]]
    */
-  @deprecated("use `swap` instead", "2.13.0")
   final case class LeftProjection[+A, +B](e: Either[A, B]) {
     /** Returns the value from this `Left` or throws `java.util.NoSuchElementException`
      *  if this is a `Right`.
@@ -653,7 +643,7 @@ object Either {
       case x @ Left(a) if p(a) => Some(x.asInstanceOf[Either[A, B1]])
       case _                   => None
     }
-    
+
     /** Returns a `Seq` containing the `Left` value if it exists or an empty
      *  `Seq` if this is a `Right`.
      *
@@ -686,8 +676,6 @@ object Either {
    *  Because `Either` is already right-biased, this class is not normally needed.
    *  (It is retained in the library for now for easy cross-compilation between Scala
    *  2.11 and 2.12.)
-   *
-   *  @author <a href="mailto:research@workingmouse.com">Tony Morris</a>, Workingmouse
    */
   @deprecated("Either is now right-biased, calls to `right` should be removed", "2.13.0")
   final case class RightProjection[+A, +B](e: Either[A, B]) {
@@ -797,7 +785,7 @@ object Either {
       case Right(b) if p(b) => Some(Right(b))
       case _                => None
     }
-    
+
     /** Returns `None` if this is a `Left` or if the
      *  given predicate `p` does not hold for the right value,
      *  otherwise, returns a `Right`.
@@ -812,7 +800,7 @@ object Either {
       case r @ Right(b) if p(b) => Some(r.asInstanceOf[Either[A1, B]])
       case _                    => None
     }
-    
+
     /** Returns a `Seq` containing the `Right` value if
      *  it exists or an empty `Seq` if this is a `Left`.
      *

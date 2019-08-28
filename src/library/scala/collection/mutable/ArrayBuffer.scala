@@ -14,17 +14,16 @@ package scala
 package collection
 package mutable
 
-import scala.collection.generic.DefaultSerializable
 import java.util.Arrays
+
+import scala.collection.Stepper.EfficientSplit
+import scala.collection.generic.DefaultSerializable
 
 /** An implementation of the `Buffer` class using an array to
   *  represent the assembled sequence internally. Append, update and random
   *  access take constant time (amortized time). Prepends and removes are
   *  linear in the buffer size.
   *
-  *  @author  Matthias Zenger
-  *  @author  Martin Odersky
-  *  @since   1
   *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-mutable-collection-classes.html#array-buffers "Scala's Collection Library overview"]]
   *  section on `Array Buffers` for more information.
 
@@ -48,10 +47,15 @@ class ArrayBuffer[A] private (initialElements: Array[AnyRef], initialSize: Int)
 
   def this() = this(new Array[AnyRef](ArrayBuffer.DefaultInitialSize), 0)
 
-  def this(initialSize: Int) = this(new Array[AnyRef](initialSize), 0)
+  def this(initialSize: Int) = this(new Array[AnyRef](initialSize max 1), 0)
 
   protected[collection] var array: Array[AnyRef] = initialElements
   protected var size0 = initialSize
+
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit = {
+    import scala.collection.convert.impl._
+    shape.parUnbox(new ObjectArrayStepper(array, 0, length).asInstanceOf[AnyStepper[A] with EfficientSplit])
+  }
 
   override def knownSize: Int = super[IndexedSeqOps].knownSize
 
@@ -93,7 +97,7 @@ class ArrayBuffer[A] private (initialElements: Array[AnyRef], initialSize: Int)
     if (hi > size0) throw new IndexOutOfBoundsException(s"$hi is out of bounds (min 0, max ${size0 - 1})")
   }
 
-  def apply(n: Int) = {
+  def apply(n: Int): A = {
     checkWithinBounds(n, n + 1)
     array(n).asInstanceOf[A]
   }
@@ -213,7 +217,6 @@ class ArrayBuffer[A] private (initialElements: Array[AnyRef], initialSize: Int)
   @deprecatedOverriding("ArrayBuffer[A] no longer extends Builder[A, ArrayBuffer[A]]", "2.13.0")
   @inline def mapResult[NewTo](f: (ArrayBuffer[A]) => NewTo): Builder[A, NewTo] = new GrowableBuilder[A, ArrayBuffer[A]](this).mapResult(f)
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "ArrayBuffer"
 
   override def copyToArray[B >: A](xs: Array[B], start: Int): Int = copyToArray[B](xs, start, length)

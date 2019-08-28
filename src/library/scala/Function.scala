@@ -13,9 +13,6 @@
 package scala
 
 /** A module defining utility methods for higher-order functional programming.
- *
- *  @author  Martin Odersky
- *  @since   1.0
  */
 object Function {
   /** Given a sequence of functions `f,,1,,`, ..., `f,,n,,`, return the

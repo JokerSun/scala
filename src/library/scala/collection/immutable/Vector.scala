@@ -14,7 +14,6 @@ package scala
 package collection
 package immutable
 
-import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.Stepper.EfficientSplit
 import scala.collection.generic.DefaultSerializable
 import scala.collection.mutable.ReusableBuilder
@@ -147,7 +146,7 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
     }
   }
 
-  override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit = {
     import convert.impl._
     var depth = -1
     val displaySource: VectorPointer[A] =
@@ -164,7 +163,7 @@ final class Vector[+A] private[immutable] (private[collection] val startIndex: I
       case StepperShape.IntShape    => new IntVectorStepper   (startIndex, endIndex, depth, trunk)
       case StepperShape.LongShape   => new LongVectorStepper  (startIndex, endIndex, depth, trunk)
       case StepperShape.DoubleShape => new DoubleVectorStepper(startIndex, endIndex, depth, trunk)
-      case _         => shape.parUnbox(new AnyVectorStepper[B](startIndex, endIndex, depth, trunk))
+      case _         => shape.parUnbox(new AnyVectorStepper[A](startIndex, endIndex, depth, trunk))
     }
     s.asInstanceOf[S with EfficientSplit]
   }

@@ -12,7 +12,7 @@
 
 package scala.tools.nsc
 
-import io.File
+import java.nio.file.Files
 
 /** A class representing command line info for scalac */
 class CompilerCommand(arguments: List[String], val settings: Settings) {
@@ -37,8 +37,8 @@ class CompilerCommand(arguments: List[String], val settings: Settings) {
     |-- Note --
     |Boolean settings are false unless set: -Xdev -Xcheck-init:true -Xprompt:false
     |Multi-valued settings are comma-separated: -Xlint:infer-any,unused,-missing-interpolator
-    |Phases are a list of names, ids, or ranges of ids: -Xprint:parser,typer,5-10 -Ylog:-4
-    |Use _ to enable all: -language:_ -Xprint:_
+    |Phases are a list of names, ids, or ranges of ids: -Vprint:parser,typer,5-10 -Ylog:-4
+    |Use _ to enable all: -language:_ -Vprint:_
     |
   """.stripMargin.trim
 
@@ -106,10 +106,8 @@ class CompilerCommand(arguments: List[String], val settings: Settings) {
 
   def getInfoMessage(global: Global): String = {
     import settings._
-    import Properties.{versionString, copyrightString}
-    def versionFor(command: String) = f"Scala $command $versionString -- $copyrightString"
 
-    if (version)            versionFor(cmdDesc)
+    if (version)            Properties.versionFor(cmdDesc)
     else if (help)          usageMsg + global.pluginOptionsHelp
     else if (Vhelp)         vusageMsg
     else if (Whelp)         wusageMsg
@@ -132,11 +130,12 @@ class CompilerCommand(arguments: List[String], val settings: Settings) {
    */
   def expandArg(arg: String): List[String] = {
     def stripComment(s: String) = s takeWhile (_ != '#')
-    val file = File(arg stripPrefix "@")
-    if (!file.exists)
-      throw new java.io.FileNotFoundException("argument file %s could not be found" format file.name)
-
-    settings splitParams (file.lines() map stripComment mkString " ")
+    import java.nio.file._
+    import scala.jdk.CollectionConverters._
+    val file = Paths.get(arg stripPrefix "@")
+    if (!Files.exists(file))
+      throw new java.io.FileNotFoundException("argument file %s could not be found" format file)
+    settings splitParams (Files.readAllLines(file).asScala map stripComment mkString " ")
   }
 
   // override this if you don't want arguments processed here

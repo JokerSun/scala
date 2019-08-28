@@ -41,7 +41,6 @@ trait Set[A]
 
   override def iterableFactory: IterableFactory[Set] = Set
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "Set"
 
   override def toString(): String = super[Iterable].toString() // Because `Function1` overrides `toString` too
@@ -114,7 +113,6 @@ trait SetOps[A, +CC[_], +C <: SetOps[A, CC, C]]
     *
     *  $willForceEvaluation
     *
-    *  @author Eastsun
     */
   private class SubsetsItr(elms: IndexedSeq[A], len: Int) extends AbstractIterator[C] {
     private[this] val idxs = Array.range(0, len+1)

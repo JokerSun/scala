@@ -13,7 +13,6 @@
 package scala
 package collection
 
-import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.DefaultSerializable
 import scala.collection.mutable.StringBuilder
 import scala.language.higherKinds
@@ -23,7 +22,7 @@ import scala.util.hashing.MurmurHash3
 trait Map[K, +V]
   extends Iterable[(K, V)]
     with MapOps[K, V, Map, Map[K, V]]
-    with MapFactoryDefaults[K, V @uncheckedVariance, Map, Iterable]
+    with MapFactoryDefaults[K, V, Map, Iterable]
     with Equals {
 
   def mapFactory: scala.collection.MapFactory[Map] = Map
@@ -53,7 +52,6 @@ trait Map[K, +V]
   @deprecated("Use -- or removedAll on an immutable Map", "2.13.0")
   def - (key1: K, key2: K, keys: K*): Map[K, V]
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "Map"
 
   override def toString(): String = super[Iterable].toString() // Because `Function1` overrides `toString` too
@@ -78,6 +76,7 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
 
   override def view: MapView[K, V] = new MapView.Id(this)
 
+  /** Returns a [[Stepper]] for the keys of this map. See method [[stepper]]. */
   def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S = {
     import convert.impl._
     val s = shape.shape match {
@@ -89,7 +88,8 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
     s.asInstanceOf[S]
   }
 
-  def valueStepper[V1 >: V, S <: Stepper[_]](implicit shape: StepperShape[V1, S]): S = {
+  /** Returns a [[Stepper]] for the values of this map. See method [[stepper]]. */
+  def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => new IntIteratorStepper   (valuesIterator.asInstanceOf[Iterator[Int]])
@@ -181,7 +181,10 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
     *
     *  @return the values of this map as an iterable.
     */
-  def values: Iterable[V] = View.fromIteratorProvider(() => valuesIterator)
+  def values: Iterable[V] = new AbstractIterable[V] with DefaultSerializable {
+    override def knownSize: Int = MapOps.this.knownSize
+    override def iterator: Iterator[V] = valuesIterator
+  }
 
   /** Creates an iterator for all keys.
     *
@@ -370,6 +373,4 @@ object Map extends MapFactory.Delegate[Map](immutable.Map) {
 }
 
 /** Explicit instantiation of the `Map` trait to reduce class file size in subclasses. */
-@SerialVersionUID(3L)
 abstract class AbstractMap[K, +V] extends AbstractIterable[(K, V)] with Map[K, V]
-

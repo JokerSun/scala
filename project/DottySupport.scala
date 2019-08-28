@@ -13,11 +13,11 @@ import sbt.librarymanagement.{
  *  Dotty in .travis.yml.
  */
 object DottySupport {
-  val dottyVersion = "0.14.0-bin-20190320-b213f24-NIGHTLY"
+  val dottyVersion = "0.17.0-RC1"
   val compileWithDotty: Boolean =
     Option(System.getProperty("scala.build.compileWithDotty")).map(_.toBoolean).getOrElse(false)
   lazy val commonSettings = Seq(
-    scalacOptions ++= Seq(
+    scalacOptions in Compile ++= Seq(
       "-Ynew-collections", // Make Dotty aware of the 2.13 collections
       "-language:implicitConversions" // Avoid a million warnings
     )

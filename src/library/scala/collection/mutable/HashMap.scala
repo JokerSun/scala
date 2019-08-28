@@ -19,8 +19,6 @@ import scala.collection.generic.DefaultSerializationProxy
 
 /** This class implements mutable maps using a hashtable.
   *
-  *  @author  Stefan Zeiger
-  *  @since 1
   *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-mutable-collection-classes.html#hash-tables "Scala's Collection Library overview"]]
   *  section on `Hash Tables` for more information.
   *
@@ -65,7 +63,7 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
     // algorithm as in java.util.HashMap.
     //
     // This function is also its own inverse. That is, for all ints i, improveHash(improveHash(i)) = i
-    // this allows us to retreive the original hash when we need it, for instance when appending to an immutable.HashMap
+    // this allows us to retrieve the original hash when we need it, for instance when appending to an immutable.HashMap
     // and that is why unimproveHash simply forwards to this method
     originalHash ^ (originalHash >>> 16)
   }
@@ -264,9 +262,9 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
       protected[this] def extract(nd: Node[K, V]) = nd
     }
 
-  override def stepper[B >: (K, V), S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit =
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[(K, V), S]): S with EfficientSplit =
     shape.
-      parUnbox(new convert.impl.AnyTableStepper[B, Node[K, V]](size, table, _.next, node => (node.key, node.value), 0, table.length)).
+      parUnbox(new convert.impl.AnyTableStepper[(K, V), Node[K, V]](size, table, _.next, node => (node.key, node.value), 0, table.length)).
       asInstanceOf[S with EfficientSplit]
 
   override def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S with EfficientSplit = {
@@ -280,13 +278,13 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
     s.asInstanceOf[S with EfficientSplit]
   }
 
-  override def valueStepper[B >: V, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S with EfficientSplit = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => new IntTableStepper[Node[K, V]]   (size, table, _.next, _.value.asInstanceOf[Int],    0, table.length)
       case StepperShape.LongShape   => new LongTableStepper[Node[K, V]]  (size, table, _.next, _.value.asInstanceOf[Long],   0, table.length)
       case StepperShape.DoubleShape => new DoubleTableStepper[Node[K, V]](size, table, _.next, _.value.asInstanceOf[Double], 0, table.length)
-      case _         => shape.parUnbox(new AnyTableStepper[B, Node[K, V]](size, table, _.next, _.value.asInstanceOf[B],      0, table.length))
+      case _         => shape.parUnbox(new AnyTableStepper[V, Node[K, V]](size, table, _.next, _.value,                      0, table.length))
     }
     s.asInstanceOf[S with EfficientSplit]
   }
@@ -460,7 +458,6 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
 
   override def mapFactory: MapFactory[HashMap] = HashMap
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "HashMap"
 }
 

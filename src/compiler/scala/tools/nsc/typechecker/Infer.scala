@@ -22,7 +22,6 @@ import scala.reflect.internal.Depth
 /** This trait contains methods related to type parameter inference.
  *
  *  @author Martin Odersky
- *  @version 1.0
  */
 trait Infer extends Checkable {
   self: Analyzer =>
@@ -49,12 +48,21 @@ trait Infer extends Checkable {
          (removeRepeated || numFormals != numArgs)
       && isVarArgTypes(formals1)
     )
-    def lastType = formals1.last.dealiasWiden.typeArgs.head
-    def expanded(n: Int) = (1 to n).toList map (_ => lastType)
 
-    if (expandLast)
-      formals1.init ::: expanded(numArgs - numFormals + 1)
-    else
+    if (expandLast) {
+      // extract the T from T*
+      val lastType = formals1.last.dealiasWiden.typeArgs.head
+
+      val n = numArgs - numFormals + 1
+      // Optimized version of: formals1.init ::: List.fill(n)(lastType)
+      val result = mutable.ListBuffer[Type]()
+      var fs = formals1
+      while ((fs ne Nil) && (fs.tail ne Nil)) {
+        result.addOne(fs.head)
+        fs = fs.tail
+      }
+      result.prependToList(fillList(n)(lastType))
+    } else
       formals1
   }
 
@@ -259,7 +267,7 @@ trait Infer extends Checkable {
 
     /** Check that `sym` is defined and accessible as a member of
      *  tree `site` with type `pre` in current context.
-     *  @PP: In case it's not abundantly obvious to anyone who might read
+     *  @note PP: In case it's not abundantly obvious to anyone who might read
      *  this, the method does a lot more than "check" these things, as does
      *  nearly every method in the compiler, so don't act all shocked.
      *  This particular example "checks" its way to assigning both the
@@ -270,7 +278,7 @@ trait Infer extends Checkable {
      * Note: pre is not refchecked -- moreover, refchecking the resulting tree may not refcheck pre,
      *       since pre may not occur in its type (callers should wrap the result in a TypeTreeWithDeferredRefCheck)
      */
-    def checkAccessible(tree: Tree, sym: Symbol, pre: Type, site: Tree): Tree = {
+    def checkAccessible(tree: Tree, sym: Symbol, pre: Type, site: Tree, isJava: Boolean): Tree = {
       def malformed(ex: MalformedType, instance: Type): Type = {
         val what    = if (ex.msg contains "malformed type") "is malformed" else s"contains a ${ex.msg}"
         val message = s"\n because its instance type $instance $what"
@@ -284,7 +292,7 @@ trait Infer extends Checkable {
       }
       // XXX So... what's this for exactly?
       if (context.unit.exists)
-        context.unit.depends += sym.enclosingTopLevelClass
+        context.unit.registerDependency(sym.enclosingTopLevelClass)
 
       if (sym.isError)
         tree setSymbol sym setType ErrorType
@@ -302,7 +310,9 @@ trait Infer extends Checkable {
               // OPT: avoid lambda allocation and Type.map for super constructor calls
               case _: SuperType if !sym.isConstructor && !owntype.isInstanceOf[OverloadedType] =>
                 owntype map ((tp: Type) => if (tp eq pre) site.symbol.thisType else tp)
-              case _ => owntype
+              case _ =>
+                if ((owntype eq ObjectTpe) && isJava) ObjectTpeJava
+                else owntype
             }
           )
       }
@@ -310,11 +320,11 @@ trait Infer extends Checkable {
 
     /** "Compatible" means conforming after conversions.
      *  "Raising to a thunk" is not implicit; therefore, for purposes of applicability and
-     *  specificity, an arg type `A` is considered compatible with cbn formal parameter type `=>A`.
+     *  specificity, an arg type `A` is considered compatible with cbn formal parameter type `=> A`.
      *  For this behavior, the type `pt` must have cbn params preserved; for instance, `formalTypes(removeByName = false)`.
      *
-     *  `isAsSpecific` no longer prefers A by testing applicability to A for both m(A) and m(=>A)
-     *  since that induces a tie between m(=>A) and m(=>A,B*) [scala/bug#3761]
+     *  `isAsSpecific` no longer prefers A by testing applicability to A for both m(A) and m(=> A)
+     *  since that induces a tie between m(=> A) and m(=> A, B*) [scala/bug#3761]
      */
     private def isCompatible(tp: Type, pt: Type): Boolean = {
       def isCompatibleByName(tp: Type, pt: Type): Boolean = (
@@ -561,7 +571,7 @@ trait Infer extends Checkable {
         if (!isFullyDefined(tvar)) tvar.constr.inst = NoType
 
       // Then define remaining type variables from argument types.
-      map2(argtpes, formals) { (argtpe, formal) =>
+      foreach2(argtpes, formals) { (argtpe, formal) =>
         val tp1 = argtpe.deconst.instantiateTypeParams(tparams, tvars)
         val pt1 = formal.instantiateTypeParams(tparams, tvars)
 
@@ -715,7 +725,7 @@ trait Infer extends Checkable {
     }
 
     /** The type of an argument list after being coerced to a tuple.
-     *  @pre: the argument list is eligible for tuple conversion.
+     *  @note Pre-condition: The argument list is eligible for tuple conversion.
      */
     private def typeAfterTupleConversion(argtpes: List[Type]): Type =
       if (argtpes.isEmpty) UnitTpe                 // aka "Tuple0"
@@ -1438,7 +1448,7 @@ trait Infer extends Checkable {
      *    the type is replaces by `Unit`, i.e. the argument is treated as an
      *    assignment expression.
      *
-     *  @pre  tree.tpe is an OverloadedType.
+     *  @note Pre-condition `tree.tpe` is an `OverloadedType`.
      */
     def inferMethodAlternative(tree: Tree, undetparams: List[Symbol], argtpes0: List[Type], pt0: Type): Unit = {
       // This potentially makes up to four attempts: tryOnce may execute

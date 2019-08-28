@@ -17,6 +17,7 @@ import symtab._
 import Flags._
 import scala.annotation.tailrec
 import scala.collection.mutable
+import scala.reflect.NameTransformer
 
 
 abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
@@ -169,7 +170,59 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
     clazz.info.decls enter member setFlag MIXEDIN resetFlag JAVA_DEFAULTMETHOD
   }
   def cloneAndAddMember(mixinClass: Symbol, mixinMember: Symbol, clazz: Symbol): Symbol =
-    addMember(clazz, mixinMember.cloneSymbol(clazz).setFlag(BRIDGE))
+    addMember(clazz, cloneBeforeErasure(mixinClass, mixinMember, clazz))
+
+  def cloneBeforeErasure(mixinClass: Symbol, mixinMember: Symbol, clazz: Symbol): Symbol = {
+    val newSym = enteringErasure {
+      // since we used `mixinMember` from the interface that represents the trait that's
+      // being mixed in, have to instantiate the interface type params (that may occur in mixinMember's
+      // info) as they are seen from the class.  We can't use the member that we get from the
+      // implementation class, as it's a clone that was made after erasure, and thus it does not
+      // know its info at the beginning of erasure anymore.
+      val sym = mixinMember cloneSymbol clazz
+
+      val erasureMap = erasure.erasure(mixinMember)
+      val erasedInterfaceInfo: Type = erasureMap(mixinMember.info)
+      val specificForwardInfo       = (clazz.thisType baseType mixinClass) memberInfo mixinMember
+      val forwarderInfo =
+        if (erasureMap(specificForwardInfo) =:= erasedInterfaceInfo)
+          specificForwardInfo
+        else {
+          erasedInterfaceInfo
+        }
+      // Optimize: no need if mixinClass has no typeparams.
+      // !!! JZ Really? What about the effect of abstract types, prefix?
+      if (mixinClass.typeParams.isEmpty) sym
+      else {
+        sym modifyInfo (_ => forwarderInfo)
+        avoidTypeParamShadowing(mixinMember, sym)
+        sym
+      }
+    }
+    newSym
+  }
+
+  // scala/bug#11523 rename method type parameters that shadow enclosing class type parameters in the host class
+  // of the mixin forwarder
+  private def avoidTypeParamShadowing(mixinMember: Symbol, forwarder: Symbol): Unit = {
+    def isForwarderTparam(sym: Symbol) = {
+      val owner = sym.owner
+      // TODO fix forwarder's info should not refer to tparams of mixinMember, fix cloning in caller!
+      //      try forwarderInfo.cloneInfo(sym)
+      owner == forwarder || owner == mixinMember
+    }
+
+    val symTparams: mutable.Map[Name, Symbol] = mutable.Map.from(forwarder.typeParams.iterator.map(t => (t.name, t)))
+    forwarder.info.foreach {
+      case TypeRef(_, tparam, _) if tparam.isTypeParameter && !isForwarderTparam(tparam) =>
+        symTparams.get(tparam.name).foreach{ symTparam =>
+          debuglog(s"Renaming ${symTparam} (owned by ${symTparam.owner}, a mixin forwarder hosted in ${forwarder.enclClass.fullNameString}) to avoid shadowing enclosing type parameter of ${tparam.owner.fullNameString})")
+          symTparam.name = symTparam.name.append(NameTransformer.NAME_JOIN_STRING)
+          symTparams.remove(tparam.name) // only rename once
+        }
+      case _ =>
+    }
+  }
 
   def publicizeTraitMethods(clazz: Symbol): Unit = {
     if (treatedClassInfos(clazz) != clazz.info) {
@@ -348,7 +401,7 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
 
     for (mc <- clazz.mixinClasses ; if mc.isTrait) {
       // @SEAN: adding trait tracking so we don't have to recompile transitive closures
-      unit.depends += mc
+      unit.registerDependency(mc)
       publicizeTraitMethods(mc)
       mixinTraitMembers(mc)
       mixinTraitForwarders(mc)
